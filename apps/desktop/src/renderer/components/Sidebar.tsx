@@ -152,7 +152,7 @@ export function Sidebar({
                             variant="ghost"
                             size="sm"
                             onClick={() => toggleGroupCollapse(group.id)}
-                            className="w-full h-8 px-3 font-normal"
+                            className="w-full h-8 px-3 pb-1 font-normal"
                             style={{ justifyContent: "flex-start" }}
                         >
                             <ChevronRight
