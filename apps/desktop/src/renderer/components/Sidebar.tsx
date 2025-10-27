@@ -1,21 +1,63 @@
-import { ChevronRight, GitBranch, Menu, Plus, SquareTerminal } from "lucide-react";
+import {
+	ChevronRight,
+	GitBranch,
+	PanelLeftClose,
+	Plus,
+	SquareTerminal,
+	Star,
+	Moon,
+	Sun,
+	Zap,
+	Puzzle,
+	Heart,
+	Sparkles,
+	Cloud,
+	Rocket,
+	Coffee,
+} from "lucide-react";
 import { useState } from "react";
 import type { Workspace } from "shared/types";
 import { Button } from "./ui/button";
+import {
+	ContextMenu,
+	ContextMenuContent,
+	ContextMenuItem,
+	ContextMenuTrigger,
+} from "./ui/context-menu";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipProvider,
+	TooltipTrigger,
+} from "./ui/tooltip";
+import { ScrollArea } from "./ui/scroll-area";
 
 interface SidebarProps {
-	workspace: Workspace | null;
+	workspaces: Workspace[];
+	currentWorkspace: Workspace | null;
 	onCollapse: () => void;
 	onScreenSelect: (worktreeId: string, screenId: string) => void;
 	onWorktreeCreated?: () => void;
+	onWorkspaceSelect: (workspaceId: string) => void;
 	selectedScreenId?: string;
 }
 
+// Playful icon set for workspaces
+const WORKSPACE_ICONS = [Star, Moon, Sun, Zap, Puzzle, Heart, Sparkles, Cloud, Rocket, Coffee];
+
+// Get consistent icon for workspace based on ID
+const getWorkspaceIcon = (workspaceId: string) => {
+	const hash = workspaceId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+	return WORKSPACE_ICONS[hash % WORKSPACE_ICONS.length];
+};
+
 export function Sidebar({
-	workspace,
+	workspaces,
+	currentWorkspace,
 	onCollapse,
 	onScreenSelect,
 	onWorktreeCreated,
+	onWorkspaceSelect,
 	selectedScreenId,
 }: SidebarProps) {
 	const [expandedWorktrees, setExpandedWorktrees] = useState<Set<string>>(
@@ -45,7 +87,7 @@ export function Sidebar({
 	const handleSubmitWorktree = async (e: React.FormEvent) => {
 		e.preventDefault();
 
-		if (!workspace || !branchName.trim()) return;
+		if (!currentWorkspace || !branchName.trim()) return;
 
 		console.log("[Sidebar] Creating worktree:", {
 			branchName,
@@ -55,7 +97,7 @@ export function Sidebar({
 
 		try {
 			const result = (await window.ipcRenderer.invoke("worktree-create", {
-				workspaceId: workspace.id,
+				currentWorkspaceId: currentWorkspace.id,
 				branch: branchName.trim(),
 				createBranch: true,
 			})) as { success: boolean; error?: string };
@@ -82,6 +124,37 @@ export function Sidebar({
 		setBranchName("");
 	};
 
+	const handleAddWorkspace = () => {
+		// Trigger the File -> Open Repository menu action
+		window.ipcRenderer.send('open-repository');
+	};
+
+	const handleRemoveWorkspace = async (workspaceId: string, workspaceName: string) => {
+		// Confirm deletion
+		const confirmed = window.confirm(
+			`Remove workspace "${workspaceName}"?\n\nAll terminal sessions for this workspace will be closed.`
+		);
+
+		if (!confirmed) return;
+
+		try {
+			const result = await window.ipcRenderer.invoke('workspace-delete', workspaceId, false);
+			if (result.success) {
+				// If we deleted the current workspace, clear selection
+				if (currentWorkspace?.id === workspaceId) {
+					onWorkspaceSelect('');
+				}
+				// Refresh will happen via workspace-opened event
+				window.location.reload();
+			} else {
+				alert(`Failed to remove workspace: ${result.error || 'Unknown error'}`);
+			}
+		} catch (error) {
+			console.error('Error removing workspace:', error);
+			alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
+		}
+	};
+
 	return (
 		<div className="flex flex-col h-full w-64 select-none bg-neutral-900 text-neutral-300 border-r border-neutral-800">
 			{/* Top Section - Matches window controls height */}
@@ -97,24 +170,24 @@ export function Sidebar({
 			>
 				<div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
 					<Button variant="ghost" size="icon-sm" onClick={onCollapse}>
-						<Menu size={16} />
+						<PanelLeftClose size={16} />
 					</Button>
 				</div>
 			</div>
 
 			{/* Worktrees Section */}
 			<div className="flex-1 overflow-y-auto px-3 py-2 space-y-1">
-				{!workspace && (
-					<div className="text-sm text-gray-500 px-3 py-2">No workspace open</div>
+				{!currentWorkspace && (
+					<div className="text-sm text-gray-500 px-3 py-2">No currentWorkspace open</div>
 				)}
 
-				{workspace && (!workspace.worktrees || workspace.worktrees.length === 0) && (
+				{currentWorkspace && (!currentWorkspace.worktrees || currentWorkspace.worktrees.length === 0) && (
 					<div className="text-sm text-gray-500 px-3 py-2">
 						No worktrees yet. Create one to get started.
 					</div>
 				)}
 
-				{workspace?.worktrees?.map((worktree) => {
+				{currentWorkspace?.worktrees?.map((worktree) => {
 					const isExpanded = expandedWorktrees.has(worktree.id);
 					return (
 						<div key={worktree.id} className="space-y-1">
@@ -161,7 +234,7 @@ export function Sidebar({
 				})}
 
 				{/* Create Worktree Button */}
-				{workspace && (
+				{currentWorkspace && (
 					<Button
 						variant="ghost"
 						size="sm"
@@ -174,6 +247,66 @@ export function Sidebar({
 						<span>{isCreatingWorktree ? "Creating..." : "New Worktree"}</span>
 					</Button>
 				)}
+			</div>
+
+			{/* Bottom Workspace Switcher */}
+			<div className="border-t border-neutral-800">
+				<TooltipProvider delayDuration={300}>
+					<div className="flex w-full">
+						<ScrollArea className="w-full" orientation="horizontal">
+							<div className="flex items-center gap-2 px-2 py-2 w-max">
+								{workspaces.map((ws) => {
+									const Icon = getWorkspaceIcon(ws.id);
+									return (
+										<ContextMenu key={ws.id}>
+											<Tooltip>
+												<ContextMenuTrigger asChild>
+													<TooltipTrigger asChild>
+														<Button
+															variant="ghost"
+															size="icon-sm"
+															onClick={() => onWorkspaceSelect(ws.id)}
+															className={currentWorkspace?.id === ws.id ? "bg-neutral-800" : ""}
+														>
+															<Icon size={18} />
+														</Button>
+													</TooltipTrigger>
+												</ContextMenuTrigger>
+												<TooltipContent side="top">
+													<p>{ws.name}</p>
+												</TooltipContent>
+												<ContextMenuContent side="top">
+													<ContextMenuItem
+														className="text-red-400 focus:text-red-400"
+														onClick={() => handleRemoveWorkspace(ws.id, ws.name)}
+													>
+														Remove Workspace
+													</ContextMenuItem>
+												</ContextMenuContent>
+											</Tooltip>
+										</ContextMenu>
+									);
+								})}
+							</div>
+						</ScrollArea>
+						<div className="px-2 py-2 border-l border-neutral-800">
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										variant="ghost"
+										size="icon-sm"
+										onClick={handleAddWorkspace}
+									>
+										<Plus size={18} />
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent side="top">
+									<p>Add workspace</p>
+								</TooltipContent>
+							</Tooltip>
+						</div>
+					</div>
+				</TooltipProvider>
 			</div>
 
 			{/* Create Worktree Modal */}

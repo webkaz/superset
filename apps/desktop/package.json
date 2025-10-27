@@ -26,7 +26,10 @@
 		"lint:fix": "biome check --write --no-errors-on-unmatched --assist-enabled=true"
 	},
 	"dependencies": {
+		"@radix-ui/react-context-menu": "^2.2.16",
+		"@radix-ui/react-scroll-area": "^1.2.10",
 		"@radix-ui/react-slot": "^1.2.3",
+		"@radix-ui/react-tooltip": "^1.2.8",
 		"@xterm/addon-fit": "^0.10.0",
 		"@xterm/addon-search": "^0.15.0",
 		"@xterm/addon-web-links": "^0.11.0",

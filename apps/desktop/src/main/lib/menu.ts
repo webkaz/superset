@@ -35,6 +35,17 @@ export function createApplicationMenu(mainWindow: BrowserWindow) {
               return
             }
 
+            // Check if workspace already exists for this repo
+            const existingWorkspaces = await workspaceManager.list()
+            const existingWorkspace = existingWorkspaces.find((ws) => ws.repoPath === repoPath)
+
+            if (existingWorkspace) {
+              // Workspace already exists, just switch to it
+              console.log('[Menu] Workspace already exists, switching to:', existingWorkspace)
+              mainWindow.webContents.send('workspace-opened', existingWorkspace)
+              return
+            }
+
             // Create workspace with repo name and current branch
             const repoName = repoPath.split('/').pop() || 'Repository'
 
