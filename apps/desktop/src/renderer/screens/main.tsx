@@ -82,6 +82,31 @@ export function MainScreen() {
 		}
 	};
 
+	// Scan for existing worktrees when workspace is opened
+	const scanWorktrees = async (workspaceId: string) => {
+		try {
+			const result = (await window.ipcRenderer.invoke(
+				"workspace-scan-worktrees",
+				workspaceId,
+			)) as { success: boolean; imported?: number; error?: string };
+
+			if (result.success && result.imported && result.imported > 0) {
+				console.log("[MainScreen] Imported worktrees:", result.imported);
+				// Refresh workspace data
+				const refreshedWorkspace = (await window.ipcRenderer.invoke(
+					"workspace-get",
+					workspaceId,
+				)) as Workspace | null;
+
+				if (refreshedWorkspace) {
+					setCurrentWorkspace(refreshedWorkspace);
+				}
+			}
+		} catch (error) {
+			console.error("[MainScreen] Failed to scan worktrees:", error);
+		}
+	};
+
 	// Load last opened workspace and all workspaces on mount
 	useEffect(() => {
 		const loadLastWorkspace = async () => {
@@ -99,6 +124,8 @@ export function MainScreen() {
 
 				if (workspace) {
 					setCurrentWorkspace(workspace);
+					// Scan for existing worktrees
+					await scanWorktrees(workspace.id);
 				}
 			} catch (err) {
 				setError(err instanceof Error ? err.message : String(err));
@@ -118,6 +145,8 @@ export function MainScreen() {
 			setLoading(false);
 			// Refresh workspaces list
 			await loadAllWorkspaces();
+			// Scan for existing worktrees
+			await scanWorktrees(workspace.id);
 		};
 
 		console.log("[MainScreen] Setting up workspace-opened listener");

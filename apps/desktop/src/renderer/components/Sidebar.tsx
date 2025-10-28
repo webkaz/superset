@@ -195,20 +195,13 @@ export function Sidebar({
 			if (result.success) {
 				console.log("[Sidebar] Scan completed, imported:", result.imported);
 				if (result.imported && result.imported > 0) {
-					alert(
-						`Successfully imported ${result.imported} worktree${result.imported > 1 ? "s" : ""}`,
-					);
 					onWorktreeCreated?.();
-				} else {
-					alert("No new worktrees found to import");
 				}
 			} else {
 				console.error("[Sidebar] Failed to scan worktrees:", result.error);
-				alert(`Failed to scan worktrees: ${result.error || "Unknown error"}`);
 			}
 		} catch (error) {
 			console.error("[Sidebar] Error scanning worktrees:", error);
-			alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
 		} finally {
 			setIsScanningWorktrees(false);
 		}
@@ -219,7 +212,7 @@ export function Sidebar({
 			<div className="flex flex-col h-full w-64 select-none bg-neutral-900 text-neutral-300 border-r border-neutral-800">
 				{/* Top Section - Matches window controls height */}
 				<div
-					className="flex items-center justify-between border-b border-neutral-800"
+					className="flex items-center border-b border-neutral-800"
 					style={
 						{
 							height: "48px",
@@ -228,12 +221,17 @@ export function Sidebar({
 						} as React.CSSProperties
 					}
 				>
-					<div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}>
-						<Button variant="ghost" size="icon-sm" onClick={onCollapse}>
-							<PanelLeftClose size={16} />
-						</Button>
-					</div>
-					<div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="pr-3">
+					<div style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties} className="flex items-center gap-1">
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button variant="ghost" size="icon-sm" onClick={onCollapse}>
+									<PanelLeftClose size={16} />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent side="bottom">
+								<p>Collapse sidebar</p>
+							</TooltipContent>
+						</Tooltip>
 						<Tooltip>
 							<TooltipTrigger asChild>
 								<Button
