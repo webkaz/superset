@@ -2,6 +2,7 @@ import { OpenInButton } from "renderer/components/OpenInButton";
 import { shortenHomePath } from "renderer/lib/formatPath";
 import { trpc } from "renderer/lib/trpc";
 import { BranchSelector } from "./components/BranchSelector";
+import { PRButton } from "./components/PRButton";
 
 interface WorkspaceHeaderProps {
 	worktreePath: string | undefined;
@@ -31,6 +32,7 @@ export function WorkspaceHeader({ worktreePath }: WorkspaceHeaderProps) {
 					currentBranch={currentBranch}
 				/>
 			)}
+			<PRButton />
 		</div>
 	);
 }
