@@ -1,3 +1,4 @@
+import type { SelectTask, TaskPriority } from "@superset/local-db";
 import { Badge } from "@superset/ui/badge";
 import { Button } from "@superset/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@superset/ui/card";
@@ -23,12 +24,11 @@ import { useState } from "react";
 import {
 	HiCalendar,
 	HiCheckCircle,
+	HiInbox,
 	HiLink,
 	HiPencil,
 	HiUser,
-	HiInbox,
 } from "react-icons/hi2";
-import type { SelectTask, TaskPriority } from "@superset/local-db";
 import { ActiveOrganizationProvider } from "renderer/contexts/ActiveOrganizationProvider";
 import { trpc } from "renderer/lib/trpc";
 import { OrganizationSwitcher } from "./components/OrganizationSwitcher";

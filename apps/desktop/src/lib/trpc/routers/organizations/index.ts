@@ -25,7 +25,7 @@ export const createOrganizationsRouter = () => {
 				.from(organizationMembers)
 				.innerJoin(
 					organizations,
-					eq(organizationMembers.organization_id, organizations.id)
+					eq(organizationMembers.organization_id, organizations.id),
 				)
 				.where(eq(organizationMembers.user_id, user.id))
 				.all();
@@ -50,7 +50,7 @@ export const createOrganizationsRouter = () => {
 							.from(organizationMembers)
 							.innerJoin(
 								organizations,
-								eq(organizationMembers.organization_id, organizations.id)
+								eq(organizationMembers.organization_id, organizations.id),
 							)
 							.where(eq(organizationMembers.user_id, user.id))
 							.all();

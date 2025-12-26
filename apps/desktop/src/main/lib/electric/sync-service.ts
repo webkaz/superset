@@ -1,7 +1,7 @@
 import { Shape, ShapeStream } from "@electric-sql/client";
 import {
-	organizations,
 	organizationMembers,
+	organizations,
 	tasks,
 	users,
 } from "@superset/local-db";
@@ -13,12 +13,19 @@ import { SYNC_EVENTS, syncEmitter } from "./sync-emitter";
 
 type SyncedTable = "tasks" | "organizations" | "organization_members" | "users";
 
-const tableConfig: Record<SyncedTable, { table: SQLiteTable; event: string }> = {
-	tasks: { table: tasks, event: SYNC_EVENTS.TASKS_UPDATED },
-	organizations: { table: organizations, event: SYNC_EVENTS.ORGANIZATIONS_UPDATED },
-	organization_members: { table: organizationMembers, event: SYNC_EVENTS.ORGANIZATION_MEMBERS_UPDATED },
-	users: { table: users, event: SYNC_EVENTS.USERS_UPDATED },
-};
+const tableConfig: Record<SyncedTable, { table: SQLiteTable; event: string }> =
+	{
+		tasks: { table: tasks, event: SYNC_EVENTS.TASKS_UPDATED },
+		organizations: {
+			table: organizations,
+			event: SYNC_EVENTS.ORGANIZATIONS_UPDATED,
+		},
+		organization_members: {
+			table: organizationMembers,
+			event: SYNC_EVENTS.ORGANIZATION_MEMBERS_UPDATED,
+		},
+		users: { table: users, event: SYNC_EVENTS.USERS_UPDATED },
+	};
 
 const shapes: Shape[] = [];
 
@@ -45,7 +52,10 @@ export async function startSync(): Promise<void> {
 			console.log(`[sync] ${tableName}: ${rows.length} rows`);
 			localDb.delete(config.table).run();
 			for (const row of rows) {
-				localDb.insert(config.table).values(row as Record<string, unknown>).run();
+				localDb
+					.insert(config.table)
+					.values(row as Record<string, unknown>)
+					.run();
 			}
 			syncEmitter.emit(config.event);
 		});

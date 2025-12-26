@@ -5,7 +5,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@superset/ui/dropdown-menu";
-import { HiChevronUpDown, HiCheck } from "react-icons/hi2";
+import { HiCheck, HiChevronUpDown } from "react-icons/hi2";
 import { trpc } from "renderer/lib/trpc";
 
 export function OrganizationSwitcher() {

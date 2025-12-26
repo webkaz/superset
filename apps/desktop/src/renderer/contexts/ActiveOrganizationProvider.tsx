@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import { HiExclamationTriangle } from "react-icons/hi2";
 import { trpc } from "renderer/lib/trpc";
 
@@ -14,8 +14,11 @@ export function ActiveOrganizationProvider({
 }: {
 	children: ReactNode;
 }) {
-	const { data: activeOrganizationId, isLoading, error } =
-		trpc.settings.getActiveOrganizationId.useQuery();
+	const {
+		data: activeOrganizationId,
+		isLoading,
+		error,
+	} = trpc.settings.getActiveOrganizationId.useQuery();
 
 	if (isLoading) {
 		return (
@@ -32,7 +35,8 @@ export function ActiveOrganizationProvider({
 					<HiExclamationTriangle className="h-10 w-10 text-destructive" />
 					<h2 className="text-lg font-semibold">No Organization Found</h2>
 					<p className="text-sm text-muted-foreground">
-						{error?.message || "You need to be part of an organization to use this feature."}
+						{error?.message ||
+							"You need to be part of an organization to use this feature."}
 					</p>
 				</div>
 			</div>

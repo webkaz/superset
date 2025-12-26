@@ -1,4 +1,4 @@
-import { settings, tasks, type SelectTask } from "@superset/local-db";
+import { type SelectTask, settings, tasks } from "@superset/local-db";
 import { observable } from "@trpc/server/observable";
 import { and, eq, isNull } from "drizzle-orm";
 import { apiClient } from "main/lib/api-client";
@@ -31,8 +31,8 @@ export const createTasksRouter = () => {
 				.where(
 					and(
 						eq(tasks.organization_id, activeOrganizationId),
-						isNull(tasks.deleted_at)
-					)
+						isNull(tasks.deleted_at),
+					),
 				)
 				.all();
 		}),
@@ -40,7 +40,10 @@ export const createTasksRouter = () => {
 		onUpdate: publicProcedure.subscription(() => {
 			return observable<{ tasks: SelectTask[] }>((emit) => {
 				const handler = () => {
-					const { activeOrganizationId } = localDb.select().from(settings).get()!;
+					const { activeOrganizationId } = localDb
+						.select()
+						.from(settings)
+						.get()!;
 					if (!activeOrganizationId) {
 						throw new Error("No active organization set");
 					}
@@ -50,8 +53,8 @@ export const createTasksRouter = () => {
 						.where(
 							and(
 								eq(tasks.organization_id, activeOrganizationId),
-								isNull(tasks.deleted_at)
-							)
+								isNull(tasks.deleted_at),
+							),
 						)
 						.all();
 					emit.next({ tasks: result });

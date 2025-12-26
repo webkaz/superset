@@ -6,8 +6,8 @@ import {
 	users,
 } from "@superset/db/schema";
 import { inArray, sql } from "drizzle-orm";
-import { QueryBuilder } from "drizzle-orm/pg-core";
 import type { PgColumn, PgTableWithColumns } from "drizzle-orm/pg-core";
+import { QueryBuilder } from "drizzle-orm/pg-core";
 
 export type AllowedTable =
 	| "tasks"
@@ -27,7 +27,11 @@ function build(
 ): WhereClause {
 	const whereExpr = inArray(sql`${sql.identifier(column.name)}`, ids);
 	const qb = new QueryBuilder();
-	const { sql: query, params } = qb.select().from(table).where(whereExpr).toSQL();
+	const { sql: query, params } = qb
+		.select()
+		.from(table)
+		.where(whereExpr)
+		.toSQL();
 	const fragment = query.replace(/^select .* from .* where\s+/i, "");
 	return { fragment, params };
 }
@@ -41,7 +45,11 @@ export async function buildWhereClause(
 			return build(tasks, tasks.organizationId, orgIds);
 
 		case "organization_members":
-			return build(organizationMembers, organizationMembers.organizationId, orgIds);
+			return build(
+				organizationMembers,
+				organizationMembers.organizationId,
+				orgIds,
+			);
 
 		case "organizations":
 			return build(organizations, organizations.id, orgIds);
