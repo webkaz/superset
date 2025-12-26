@@ -21,6 +21,7 @@ import { AppFrame } from "./components/AppFrame";
 import { Background } from "./components/Background";
 import { SettingsView } from "./components/SettingsView";
 import { StartView } from "./components/StartView";
+import { TasksView } from "./components/TasksView";
 import { TopBar } from "./components/TopBar";
 import { WorkspaceView } from "./components/WorkspaceView";
 
@@ -190,6 +191,9 @@ export function MainScreen() {
 	const renderContent = () => {
 		if (currentView === "settings") {
 			return <SettingsView />;
+		}
+		if (currentView === "tasks") {
+			return <TasksView />;
 		}
 		return <WorkspaceView />;
 	};

@@ -16,18 +16,20 @@ import { FaDiscord, FaXTwitter } from "react-icons/fa6";
 import {
 	HiOutlineArrowRightOnRectangle,
 	HiOutlineBugAnt,
+	HiOutlineClipboardDocumentList,
 	HiOutlineCog6Tooth,
 	HiOutlineCommandLine,
 	HiOutlineEnvelope,
 } from "react-icons/hi2";
 import { LuLifeBuoy } from "react-icons/lu";
 import { trpc } from "renderer/lib/trpc";
-import { useOpenSettings } from "renderer/stores";
+import { useOpenSettings, useOpenTasks } from "renderer/stores";
 import { HOTKEYS } from "shared/hotkeys";
 
 export function AvatarDropdown() {
 	const { data: user } = trpc.user.me.useQuery();
 	const openSettings = useOpenSettings();
+	const openTasks = useOpenTasks();
 	const signOutMutation = trpc.auth.signOut.useMutation({
 		onSuccess: () => toast.success("Signed out"),
 	});
@@ -41,6 +43,10 @@ export function AvatarDropdown() {
 
 	const handleSettings = () => {
 		openSettings();
+	};
+
+	const handleTasks = () => {
+		openTasks();
 	};
 
 	const handleContactUs = () => {
@@ -96,6 +102,10 @@ export function AvatarDropdown() {
 				<DropdownMenuItem onClick={handleSettings}>
 					<HiOutlineCog6Tooth className="h-4 w-4" />
 					Settings
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={handleTasks}>
+					<HiOutlineClipboardDocumentList className="h-4 w-4" />
+					Tasks
 				</DropdownMenuItem>
 				<DropdownMenuItem onClick={handleViewHotkeys}>
 					<HiOutlineCommandLine className="h-4 w-4" />
