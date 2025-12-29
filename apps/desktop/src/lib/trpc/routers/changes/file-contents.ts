@@ -6,12 +6,70 @@ import {
 	join,
 	normalize,
 	relative,
+	sep,
 } from "node:path";
+import { worktrees } from "@superset/local-db";
+import { eq } from "drizzle-orm";
+import { localDb } from "main/lib/local-db";
 import type { FileContents } from "shared/changes-types";
 import simpleGit from "simple-git";
 import { z } from "zod";
 import { publicProcedure, router } from "../..";
 import { detectLanguage } from "./utils/parse-status";
+
+/**
+ * Validates that a worktreePath exists in localDb.worktrees.
+ * This prevents arbitrary filesystem access by ensuring the path
+ * is a known, registered worktree.
+ *
+ * SECURITY: This is critical - without this check, a compromised renderer
+ * could read/write arbitrary files by passing worktreePath="/" or similar.
+ */
+function validateWorktreePathInDb(worktreePath: string): boolean {
+	const worktree = localDb
+		.select()
+		.from(worktrees)
+		.where(eq(worktrees.path, worktreePath))
+		.get();
+	return !!worktree;
+}
+
+/**
+ * Checks if a normalized path contains directory traversal patterns.
+ * Uses segment-aware checks to avoid false positives on paths like "..foo/bar".
+ */
+function containsPathTraversal(normalizedPath: string): boolean {
+	// Check if path is exactly ".." or starts with "../" (or "..\\" on Windows)
+	if (normalizedPath === ".." || normalizedPath.startsWith(`..${sep}`)) {
+		return true;
+	}
+	// Check for "/../" or "\..\" anywhere in the path
+	if (normalizedPath.includes(`${sep}..${sep}`)) {
+		return true;
+	}
+	// Check if path ends with "/.." or "\.."
+	if (normalizedPath.endsWith(`${sep}..`)) {
+		return true;
+	}
+	return false;
+}
+
+/**
+ * Checks if a relative path escapes outside its base directory.
+ * Uses segment-aware checks for cross-platform compatibility.
+ */
+function isPathOutsideBase(relativePath: string): boolean {
+	if (isAbsolute(relativePath)) {
+		return true;
+	}
+	// Segment-aware check: path is outside if it equals ".." or starts with "../"
+	return (
+		relativePath === ".." ||
+		relativePath.startsWith(`..${sep}`) ||
+		// Also handle forward slashes on all platforms (relative() may use them)
+		relativePath.startsWith("../")
+	);
+}
 
 /** Maximum file size for reading (2 MiB) */
 const MAX_FILE_SIZE = 2 * 1024 * 1024;
@@ -42,9 +100,9 @@ async function validatePathInWorktree(
 		return { valid: false, reason: "outside-worktree" };
 	}
 
-	// Normalize and check for traversal
+	// Normalize and check for traversal using segment-aware check
 	const normalizedPath = normalize(filePath);
-	if (normalizedPath.startsWith("..") || normalizedPath.includes("/../")) {
+	if (containsPathTraversal(normalizedPath)) {
 		return { valid: false, reason: "outside-worktree" };
 	}
 
@@ -56,8 +114,8 @@ async function validatePathInWorktree(
 		const realFilePath = await realpath(fullPath);
 		const relativePath = relative(realWorktreePath, realFilePath);
 
-		// If relative path starts with "..", the file is outside worktree
-		if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+		// Use segment-aware check for relative path
+		if (isPathOutsideBase(relativePath)) {
 			return { valid: false, reason: "outside-worktree" };
 		}
 
@@ -82,9 +140,9 @@ async function validatePathForWrite(
 		return { valid: false, reason: "outside-worktree" };
 	}
 
-	// Normalize and check for traversal
+	// Normalize and check for traversal using segment-aware check
 	const normalizedPath = normalize(filePath);
-	if (normalizedPath.startsWith("..") || normalizedPath.includes("/../")) {
+	if (containsPathTraversal(normalizedPath)) {
 		return { valid: false, reason: "outside-worktree" };
 	}
 
@@ -101,7 +159,7 @@ async function validatePathForWrite(
 				// File exists and is a symlink - verify target is within worktree
 				const realFilePath = await realpath(fullPath);
 				const relativePath = relative(realWorktreePath, realFilePath);
-				if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+				if (isPathOutsideBase(relativePath)) {
 					return { valid: false, reason: "outside-worktree" };
 				}
 				return { valid: true, resolvedPath: realFilePath };
@@ -116,7 +174,7 @@ async function validatePathForWrite(
 		try {
 			const realParentPath = await realpath(parentDir);
 			const parentRelative = relative(realWorktreePath, realParentPath);
-			if (parentRelative.startsWith("..") || isAbsolute(parentRelative)) {
+			if (isPathOutsideBase(parentRelative)) {
 				return { valid: false, reason: "outside-worktree" };
 			}
 			// Construct final path using resolved parent + filename
@@ -128,7 +186,7 @@ async function validatePathForWrite(
 			// Parent directory doesn't exist - fall back to path validation
 			const candidatePath = join(realWorktreePath, normalizedPath);
 			const relativePath = relative(realWorktreePath, candidatePath);
-			if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+			if (isPathOutsideBase(relativePath)) {
 				return { valid: false, reason: "outside-worktree" };
 			}
 			return { valid: true, resolvedPath: candidatePath };
@@ -166,6 +224,11 @@ export const createFileContentsRouter = () => {
 				}),
 			)
 			.query(async ({ input }): Promise<FileContents> => {
+				// SECURITY: Validate worktreePath exists in localDb to prevent arbitrary FS access
+				if (!validateWorktreePathInDb(input.worktreePath)) {
+					throw new Error(`Unauthorized: worktree path not found in database`);
+				}
+
 				const git = simpleGit(input.worktreePath);
 				const defaultBranch = input.defaultBranch || "main";
 				const originalPath = input.oldPath || input.filePath;
@@ -196,6 +259,11 @@ export const createFileContentsRouter = () => {
 				}),
 			)
 			.mutation(async ({ input }): Promise<{ success: boolean }> => {
+				// SECURITY: Validate worktreePath exists in localDb to prevent arbitrary FS access
+				if (!validateWorktreePathInDb(input.worktreePath)) {
+					throw new Error(`Unauthorized: worktree path not found in database`);
+				}
+
 				// Validate path is within worktree (prevents path traversal attacks)
 				const validation = await validatePathForWrite(
 					input.worktreePath,
@@ -227,6 +295,11 @@ export const createFileContentsRouter = () => {
 				}),
 			)
 			.query(async ({ input }): Promise<ReadWorkingFileResult> => {
+				// SECURITY: Validate worktreePath exists in localDb to prevent arbitrary FS access
+				if (!validateWorktreePathInDb(input.worktreePath)) {
+					return { ok: false, reason: "outside-worktree" };
+				}
+
 				// Validate path is within worktree
 				const validation = await validatePathInWorktree(
 					input.worktreePath,

@@ -126,7 +126,11 @@ export const useTabsStore = create<TabsStore>()(
 
 					const paneIds = getPaneIdsForTab(state.panes, tabId);
 					for (const paneId of paneIds) {
-						killTerminalForPane(paneId);
+						// Only kill terminal sessions for terminal panes (avoids unnecessary IPC for file-viewers)
+						const pane = state.panes[paneId];
+						if (pane?.type === "terminal") {
+							killTerminalForPane(paneId);
+						}
 					}
 
 					const newPanes = { ...state.panes };
@@ -459,7 +463,10 @@ export const useTabsStore = create<TabsStore>()(
 						return;
 					}
 
-					killTerminalForPane(paneId);
+					// Only kill terminal sessions for terminal panes (avoids unnecessary IPC for file-viewers)
+					if (pane.type === "terminal") {
+						killTerminalForPane(paneId);
+					}
 
 					const newLayout = removePaneFromLayout(tab.layout, paneId);
 					if (!newLayout) {
