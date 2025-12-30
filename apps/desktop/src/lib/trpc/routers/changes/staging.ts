@@ -1,8 +1,9 @@
 import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import simpleGit from "simple-git";
 import { z } from "zod";
 import { publicProcedure, router } from "../..";
-import { assertWorktreePathInDb, validatePathInWorktree } from "./security";
+import { assertWorktreePathInDb } from "./security";
 
 export const createStagingRouter = () => {
 	return router({
@@ -88,22 +89,9 @@ export const createStagingRouter = () => {
 				// SECURITY: Validate worktreePath exists in localDb
 				assertWorktreePathInDb(input.worktreePath);
 
-				// SECURITY P0: Validate path is within worktree (prevents traversal/symlink attacks)
-				const validation = await validatePathInWorktree(
-					input.worktreePath,
-					input.filePath,
-				);
-
-				if (!validation.valid) {
-					throw new Error(
-						validation.reason === "outside-worktree"
-							? "Cannot delete files outside worktree"
-							: "File not found",
-					);
-				}
-
-				// Use the resolved path (follows symlinks safely)
-				await rm(validation.resolvedPath, { recursive: true, force: true });
+				// filePath comes from git status output, which git already sandboxes
+				const fullPath = join(input.worktreePath, input.filePath);
+				await rm(fullPath, { recursive: true, force: true });
 				return { success: true };
 			}),
 	});

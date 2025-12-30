@@ -1,14 +1,9 @@
 import { lstat, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import type { FileContents } from "shared/changes-types";
 import simpleGit from "simple-git";
 import { z } from "zod";
 import { publicProcedure, router } from "../..";
-import {
-	validatePathForWrite,
-	validatePathInWorktree,
-	validateWorktreePathInDb,
-} from "./security";
+import { validateFilePath, validateWorktreePathInDb } from "./security";
 import { detectLanguage } from "./utils/parse-status";
 
 /** Maximum file size for reading (2 MiB) */
@@ -94,21 +89,14 @@ export const createFileContentsRouter = () => {
 					throw new Error(`Unauthorized: worktree path not found in database`);
 				}
 
-				// Validate path is within worktree (prevents path traversal attacks)
-				const validation = await validatePathForWrite(
-					input.worktreePath,
-					input.filePath,
-				);
+				// Validate path doesn't escape worktree
+				const validation = validateFilePath(input.worktreePath, input.filePath);
 
 				if (!validation.valid) {
-					throw new Error(
-						validation.reason === "outside-worktree"
-							? "Cannot write to files outside worktree"
-							: "File path validation failed",
-					);
+					throw new Error("Invalid file path");
 				}
 
-				await writeFile(validation.resolvedPath, input.content, "utf-8");
+				await writeFile(validation.fullPath, input.content, "utf-8");
 				return { success: true };
 			}),
 
@@ -130,20 +118,14 @@ export const createFileContentsRouter = () => {
 					return { ok: false, reason: "outside-worktree" };
 				}
 
-				// Validate path is within worktree
-				const validation = await validatePathInWorktree(
-					input.worktreePath,
-					input.filePath,
-				);
+				// Validate path doesn't escape worktree
+				const validation = validateFilePath(input.worktreePath, input.filePath);
 
 				if (!validation.valid) {
-					return {
-						ok: false,
-						reason: validation.reason,
-					};
+					return { ok: false, reason: "outside-worktree" };
 				}
 
-				const resolvedPath = validation.resolvedPath;
+				const resolvedPath = validation.fullPath;
 
 				// Check file size
 				try {
@@ -292,14 +274,14 @@ async function getUnstagedVersions(
 	}
 
 	let modified = "";
-	// Validate path before reading from filesystem (prevents path traversal)
-	const validation = await validatePathInWorktree(worktreePath, filePath);
-	if (validation.valid && validation.resolvedPath) {
+	// Validate path before reading from filesystem
+	const validation = validateFilePath(worktreePath, filePath);
+	if (validation.valid) {
 		try {
 			// Check file size before reading
-			const stats = await lstat(validation.resolvedPath);
+			const stats = await lstat(validation.fullPath);
 			if (stats.size <= MAX_FILE_SIZE) {
-				modified = await readFile(validation.resolvedPath, "utf-8");
+				modified = await readFile(validation.fullPath, "utf-8");
 			} else {
 				modified = `[File content truncated - exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit]`;
 			}
