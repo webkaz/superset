@@ -11,7 +11,9 @@ import {
 	HoverCardTrigger,
 } from "@superset/ui/hover-card";
 import type { ReactNode } from "react";
+import { LuEyeOff } from "react-icons/lu";
 import { trpc } from "renderer/lib/trpc";
+import { useTabsStore } from "renderer/stores/tabs/store";
 import { WorkspaceHoverCardContent } from "./WorkspaceHoverCard";
 
 interface WorkspaceItemContextMenuProps {
@@ -34,11 +36,16 @@ export function WorkspaceItemContextMenu({
 	showHoverCard = true,
 }: WorkspaceItemContextMenuProps) {
 	const openInFinder = trpc.external.openInFinder.useMutation();
+	const markWorkspaceAsUnread = useTabsStore((s) => s.markWorkspaceAsUnread);
 
 	const handleOpenInFinder = () => {
 		if (worktreePath) {
 			openInFinder.mutate(worktreePath);
 		}
+	};
+
+	const handleMarkAsUnread = () => {
+		markWorkspaceAsUnread(workspaceId);
 	};
 
 	// For branch workspaces, just show context menu without hover card
@@ -55,6 +62,11 @@ export function WorkspaceItemContextMenu({
 					)}
 					<ContextMenuItem onSelect={handleOpenInFinder}>
 						Open in Finder
+					</ContextMenuItem>
+					<ContextMenuSeparator />
+					<ContextMenuItem onSelect={handleMarkAsUnread}>
+						<LuEyeOff className="size-4 mr-2" />
+						Mark as Unread
 					</ContextMenuItem>
 				</ContextMenuContent>
 			</ContextMenu>
@@ -76,6 +88,11 @@ export function WorkspaceItemContextMenu({
 					)}
 					<ContextMenuItem onSelect={handleOpenInFinder}>
 						Open in Finder
+					</ContextMenuItem>
+					<ContextMenuSeparator />
+					<ContextMenuItem onSelect={handleMarkAsUnread}>
+						<LuEyeOff className="size-4 mr-2" />
+						Mark as Unread
 					</ContextMenuItem>
 				</ContextMenuContent>
 			</ContextMenu>

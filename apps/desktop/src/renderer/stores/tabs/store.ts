@@ -543,6 +543,33 @@ export const useTabsStore = create<TabsStore>()(
 					}));
 				},
 
+				markWorkspaceAsUnread: (workspaceId) => {
+					const state = get();
+					const workspaceTabs = state.tabs.filter(
+						(t) => t.workspaceId === workspaceId,
+					);
+					const workspacePaneIds = workspaceTabs.flatMap((t) =>
+						extractPaneIdsFromLayout(t.layout),
+					);
+
+					if (workspacePaneIds.length === 0) {
+						console.log(
+							"[tabs/markUnread] No panes to mark for workspace:",
+							workspaceId,
+						);
+						return;
+					}
+
+					const newPanes = { ...state.panes };
+					for (const paneId of workspacePaneIds) {
+						if (newPanes[paneId]) {
+							newPanes[paneId] = { ...newPanes[paneId], needsAttention: true };
+						}
+					}
+
+					set({ panes: newPanes });
+				},
+
 				updatePaneCwd: (paneId, cwd, confirmed) => {
 					set((state) => ({
 						panes: {

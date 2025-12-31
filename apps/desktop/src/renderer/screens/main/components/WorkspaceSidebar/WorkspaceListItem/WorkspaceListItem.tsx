@@ -17,7 +17,7 @@ import { cn } from "@superset/ui/utils";
 import { useState } from "react";
 import { useDrag, useDrop } from "react-dnd";
 import { HiMiniXMark } from "react-icons/hi2";
-import { LuGitBranch } from "react-icons/lu";
+import { LuEyeOff, LuGitBranch } from "react-icons/lu";
 import { trpc } from "renderer/lib/trpc";
 import {
 	useReorderWorkspaces,
@@ -71,6 +71,7 @@ export function WorkspaceListItem({
 	const rename = useWorkspaceRename(id, name);
 	const tabs = useTabsStore((s) => s.tabs);
 	const panes = useTabsStore((s) => s.panes);
+	const markWorkspaceAsUnread = useTabsStore((s) => s.markWorkspaceAsUnread);
 	const openInFinder = trpc.external.openInFinder.useMutation();
 
 	// Shared delete logic
@@ -111,6 +112,10 @@ export function WorkspaceListItem({
 		if (worktreePath) {
 			openInFinder.mutate(worktreePath);
 		}
+	};
+
+	const handleMarkAsUnread = () => {
+		markWorkspaceAsUnread(id);
 	};
 
 	// Drag and drop
@@ -265,6 +270,11 @@ export function WorkspaceListItem({
 						<ContextMenuItem onSelect={handleOpenInFinder}>
 							Open in Finder
 						</ContextMenuItem>
+						<ContextMenuSeparator />
+						<ContextMenuItem onSelect={handleMarkAsUnread}>
+							<LuEyeOff className="size-4 mr-2" />
+							Mark as Unread
+						</ContextMenuItem>
 					</ContextMenuContent>
 				</ContextMenu>
 				<DeleteWorkspaceDialog
@@ -295,6 +305,11 @@ export function WorkspaceListItem({
 						<ContextMenuSeparator />
 						<ContextMenuItem onSelect={handleOpenInFinder}>
 							Open in Finder
+						</ContextMenuItem>
+						<ContextMenuSeparator />
+						<ContextMenuItem onSelect={handleMarkAsUnread}>
+							<LuEyeOff className="size-4 mr-2" />
+							Mark as Unread
 						</ContextMenuItem>
 					</ContextMenuContent>
 				</ContextMenu>
