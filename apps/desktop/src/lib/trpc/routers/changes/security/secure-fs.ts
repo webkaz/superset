@@ -106,7 +106,12 @@ async function assertParentInWorktree(
 						// We need to check if the target, when resolved, would be in worktree
 						// This is conservative: if we can't determine, fail closed
 						const targetRelative = relative(worktreeReal, resolvedTarget);
-						if (targetRelative.startsWith("..") || isAbsolute(targetRelative)) {
+						// Use sep-aware check to avoid false positives on "..config" dirs
+						if (
+							targetRelative === ".." ||
+							targetRelative.startsWith(`..${sep}`) ||
+							isAbsolute(targetRelative)
+						) {
 							throw new PathValidationError(
 								"Dangling symlink points outside the worktree",
 								"SYMLINK_ESCAPE",
