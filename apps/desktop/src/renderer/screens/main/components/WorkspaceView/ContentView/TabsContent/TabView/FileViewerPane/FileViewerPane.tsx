@@ -25,6 +25,7 @@ import { useTabsStore } from "renderer/stores/tabs/store";
 import type { Pane } from "renderer/stores/tabs/types";
 import type { FileViewerMode } from "shared/tabs-types";
 import { DiffViewer } from "../../../ChangesContent/components/DiffViewer";
+import { UnsavedChangesDialog } from "./UnsavedChangesDialog";
 
 type SplitOrientation = "vertical" | "horizontal";
 
@@ -105,6 +106,14 @@ export function FileViewerPane({
 	const originalContentRef = useRef<string>("");
 	// Store draft content to preserve edits across view mode switches
 	const draftContentRef = useRef<string | null>(null);
+	// Track original diff modified content for dirty comparison
+	const originalDiffContentRef = useRef<string>("");
+	// Track current diff content for save & switch
+	const currentDiffContentRef = useRef<string>("");
+	// Dialog state for unsaved changes prompt
+	const [showUnsavedDialog, setShowUnsavedDialog] = useState(false);
+	const [isSavingAndSwitching, setIsSavingAndSwitching] = useState(false);
+	const pendingModeRef = useRef<FileViewerMode | null>(null);
 	const utils = trpc.useUtils();
 
 	// Track container dimensions for auto-split orientation
@@ -149,6 +158,8 @@ export function FileViewerPane({
 
 	// Track if we're saving from raw mode to know when to clear draft
 	const savingFromRawRef = useRef(false);
+	// Track content being saved from diff mode for updating originalDiffContentRef
+	const savingDiffContentRef = useRef<string | null>(null);
 
 	// Track if we've applied initial line/column navigation (reset on file change)
 	const hasAppliedInitialLocationRef = useRef(false);
@@ -160,6 +171,11 @@ export function FileViewerPane({
 			// Update original content to current content after save
 			if (editorRef.current) {
 				originalContentRef.current = editorRef.current.getValue();
+			}
+			// Update diff baseline if we saved from Diff mode
+			if (savingDiffContentRef.current !== null) {
+				originalDiffContentRef.current = savingDiffContentRef.current;
+				savingDiffContentRef.current = null;
 			}
 			// P1: Only clear draft if we saved from Raw mode (we saved the draft content)
 			// Don't clear if saving from Diff mode as that would discard Raw edits
@@ -194,25 +210,27 @@ export function FileViewerPane({
 		},
 	});
 
-	// Save handler for raw mode editor
-	const handleSaveRaw = useCallback(() => {
+	// Save handler for raw mode editor - returns promise for async save & switch
+	const handleSaveRaw = useCallback(async () => {
 		if (!editorRef.current || !filePath || !worktreePath) return;
 		// Mark that we're saving from Raw mode so onSuccess knows to clear draft
 		savingFromRawRef.current = true;
-		saveFileMutation.mutate({
+		await saveFileMutation.mutateAsync({
 			worktreePath,
 			filePath,
 			content: editorRef.current.getValue(),
 		});
 	}, [worktreePath, filePath, saveFileMutation]);
 
-	// Save handler for diff mode
+	// Save handler for diff mode - returns promise for async save & switch
 	const handleSaveDiff = useCallback(
-		(content: string) => {
+		async (content: string) => {
 			if (!filePath || !worktreePath) return;
 			// Not saving from Raw mode - don't clear draft
 			savingFromRawRef.current = false;
-			saveFileMutation.mutate({
+			// Track content for updating diff baseline on success
+			savingDiffContentRef.current = content;
+			await saveFileMutation.mutateAsync({
 				worktreePath,
 				filePath,
 				content,
@@ -248,9 +266,13 @@ export function FileViewerPane({
 
 	// Track content changes for dirty state
 	const handleEditorChange = useCallback((value: string | undefined) => {
-		if (value !== undefined) {
-			setIsDirty(value !== originalContentRef.current);
+		if (value === undefined) return;
+		// If baseline is empty, this is initial load after a mode switch - set baseline
+		if (originalContentRef.current === "") {
+			originalContentRef.current = value;
+			return;
 		}
+		setIsDirty(value !== originalContentRef.current);
 	}, []);
 
 	// Reset dirty state, draft, and initial location tracking when file changes
@@ -308,6 +330,25 @@ export function FileViewerPane({
 			originalContentRef.current = rawFileData.content;
 		}
 	}, [rawFileData]);
+
+	// Update originalDiffContentRef when diff data loads
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Only update baseline when diff loads
+	useEffect(() => {
+		if (diffData?.modified && !isDirty) {
+			originalDiffContentRef.current = diffData.modified;
+		}
+	}, [diffData]);
+
+	// Handler for diff editor content changes
+	const handleDiffChange = useCallback((content: string) => {
+		currentDiffContentRef.current = content;
+		// If baseline is empty, this is initial mount after a mode switch - set baseline
+		if (originalDiffContentRef.current === "") {
+			originalDiffContentRef.current = content;
+			return;
+		}
+		setIsDirty(content !== originalDiffContentRef.current);
+	}, []);
 
 	// Apply initial line/column navigation when raw content is ready
 	// NOTE: Line/column navigation only supported in raw mode.
@@ -391,16 +432,8 @@ export function FileViewerPane({
 		}
 	};
 
-	const handleViewModeChange = (value: string) => {
-		if (!value) return;
-		const newMode = value as FileViewerMode;
-
-		// P1: Save current editor content before switching away from raw mode
-		if (viewMode === "raw" && editorRef.current) {
-			draftContentRef.current = editorRef.current.getValue();
-		}
-
-		// Update the pane's view mode in the store
+	// Helper to switch view mode
+	const switchToMode = (newMode: FileViewerMode) => {
 		const panes = useTabsStore.getState().panes;
 		const currentPane = panes[paneId];
 		if (currentPane?.fileViewer) {
@@ -417,6 +450,83 @@ export function FileViewerPane({
 				},
 			});
 		}
+	};
+
+	const handleViewModeChange = (value: string) => {
+		if (!value) return;
+		const newMode = value as FileViewerMode;
+
+		// If switching away from an editable mode with unsaved changes, show dialog
+		// This covers both Raw → Diff/Rendered and Diff → Raw/Rendered
+		if (isDirty && newMode !== viewMode) {
+			pendingModeRef.current = newMode;
+			setShowUnsavedDialog(true);
+			return;
+		}
+
+		switchToMode(newMode);
+	};
+
+	const handleSaveAndSwitch = async () => {
+		if (!pendingModeRef.current) return;
+
+		setIsSavingAndSwitching(true);
+		try {
+			// Save based on current view mode
+			// Note: use !== undefined to allow saving empty files (empty string is valid)
+			if (viewMode === "raw" && editorRef.current) {
+				const savedContent = editorRef.current.getValue();
+				await handleSaveRaw();
+				// Update baseline to saved content so dirty state resets
+				originalContentRef.current = savedContent;
+				// Reset diff baseline so useEffect sets fresh baseline when diff loads
+				originalDiffContentRef.current = "";
+			} else if (
+				viewMode === "diff" &&
+				currentDiffContentRef.current !== undefined
+			) {
+				const savedContent = currentDiffContentRef.current;
+				await handleSaveDiff(savedContent);
+				// Update baseline to saved content so dirty state resets
+				originalDiffContentRef.current = savedContent;
+				// Reset raw baseline so useEffect sets fresh baseline when raw loads
+				originalContentRef.current = "";
+			}
+
+			// Reset dirty state after successful save
+			setIsDirty(false);
+			draftContentRef.current = null;
+			currentDiffContentRef.current = "";
+
+			// Only switch after save succeeds
+			switchToMode(pendingModeRef.current);
+			pendingModeRef.current = null;
+			setShowUnsavedDialog(false);
+		} catch (error) {
+			// Save failed - stay in current mode, dialog stays open
+			console.error("[FileViewerPane] Save failed:", error);
+		} finally {
+			setIsSavingAndSwitching(false);
+		}
+	};
+
+	const handleDiscardAndSwitch = () => {
+		if (!pendingModeRef.current) return;
+
+		// Reset based on current view mode
+		if (viewMode === "raw" && editorRef.current) {
+			editorRef.current.setValue(originalContentRef.current);
+		}
+		// For diff mode, we just need to reset the dirty state
+		// The diff viewer will reload from the file when we switch back
+
+		setIsDirty(false);
+		draftContentRef.current = null;
+		currentDiffContentRef.current = "";
+
+		// Switch to the pending mode
+		switchToMode(pendingModeRef.current);
+		pendingModeRef.current = null;
 	};
 
 	const fileName = filePath.split("/").pop() || filePath;
@@ -457,6 +567,7 @@ export function FileViewerPane({
 					filePath={filePath}
 					editable={isDiffEditable}
 					onSave={isDiffEditable ? handleSaveDiff : undefined}
+					onChange={isDiffEditable ? handleDiffChange : undefined}
 				/>
 			);
 		}
@@ -667,6 +778,13 @@ export function FileViewerPane({
 			>
 				{renderContent()}
 			</div>
+			<UnsavedChangesDialog
+				open={showUnsavedDialog}
+				onOpenChange={setShowUnsavedDialog}
+				onSaveAndSwitch={handleSaveAndSwitch}
+				onDiscardAndSwitch={handleDiscardAndSwitch}
+				isSaving={isSavingAndSwitching}
+			/>
 		</MosaicWindow>
 	);
 }
