@@ -30,10 +30,8 @@ import {
 	type DetachRequest,
 	type EmptyResponse,
 	type HelloResponse,
-	type IpcErrorResponse,
 	type IpcEvent,
 	type IpcResponse,
-	type IpcSuccessResponse,
 	type KillAllRequest,
 	type KillRequest,
 	type ListSessionsResponse,
@@ -59,6 +57,8 @@ enum ConnectionState {
 // =============================================================================
 // Configuration
 // =============================================================================
+
+const DEBUG_CLIENT = process.env.SUPERSET_TERMINAL_DEBUG === "1";
 
 const SUPERSET_DIR_NAME =
 	process.env.NODE_ENV === "development" ? ".superset-dev" : ".superset";
@@ -179,9 +179,11 @@ export class TerminalHostClient extends EventEmitter {
 
 		// Another connection in progress - wait with timeout
 		if (this.connectionState === ConnectionState.CONNECTING) {
-			console.log(
-				"[TerminalHostClient] Connection already in progress, waiting...",
-			);
+			if (DEBUG_CLIENT) {
+				console.log(
+					"[TerminalHostClient] Connection already in progress, waiting...",
+				);
+			}
 			return new Promise((resolve, reject) => {
 				const startTime = Date.now();
 				const WAIT_TIMEOUT_MS = 10000; // 10 seconds max wait
@@ -210,23 +212,31 @@ export class TerminalHostClient extends EventEmitter {
 		}
 
 		this.connectionState = ConnectionState.CONNECTING;
-		console.log("[TerminalHostClient] Connecting to daemon...");
+		if (DEBUG_CLIENT) {
+			console.log("[TerminalHostClient] Connecting to daemon...");
+		}
 
 		try {
 			// Try to connect to existing daemon
 			let connected = await this.tryConnect();
-			console.log(
-				`[TerminalHostClient] Initial connection attempt: ${connected ? "SUCCESS" : "FAILED"}`,
-			);
+			if (DEBUG_CLIENT) {
+				console.log(
+					`[TerminalHostClient] Initial connection attempt: ${connected ? "SUCCESS" : "FAILED"}`,
+				);
+			}
 
 			if (!connected) {
 				// Spawn daemon and retry
-				console.log("[TerminalHostClient] Spawning daemon...");
+				if (DEBUG_CLIENT) {
+					console.log("[TerminalHostClient] Spawning daemon...");
+				}
 				await this.spawnDaemon();
 				connected = await this.tryConnect();
-				console.log(
-					`[TerminalHostClient] Post-spawn connection attempt: ${connected ? "SUCCESS" : "FAILED"}`,
-				);
+				if (DEBUG_CLIENT) {
+					console.log(
+						`[TerminalHostClient] Post-spawn connection attempt: ${connected ? "SUCCESS" : "FAILED"}`,
+					);
+				}
 
 				if (!connected) {
 					throw new Error("Failed to connect to daemon after spawn");
@@ -234,9 +244,13 @@ export class TerminalHostClient extends EventEmitter {
 			}
 
 			// Authenticate
-			console.log("[TerminalHostClient] Authenticating...");
+			if (DEBUG_CLIENT) {
+				console.log("[TerminalHostClient] Authenticating...");
+			}
 			await this.authenticate();
-			console.log("[TerminalHostClient] Authentication successful!");
+			if (DEBUG_CLIENT) {
+				console.log("[TerminalHostClient] Authentication successful!");
+			}
 
 			this.connectionState = ConnectionState.CONNECTED;
 		} catch (error) {
@@ -358,6 +372,7 @@ export class TerminalHostClient extends EventEmitter {
 	 * Handle incoming message (response or event)
 	 */
 	private handleMessage(message: IpcResponse | IpcEvent): void {
+		// Type guard: responses have 'id' field, events have 'type: event'
 		if ("id" in message) {
 			// Response to a request
 			const pending = this.pendingRequests.get(message.id);
@@ -366,40 +381,43 @@ export class TerminalHostClient extends EventEmitter {
 				clearTimeout(pending.timeoutId);
 
 				if (message.ok) {
-					pending.resolve((message as IpcSuccessResponse).payload);
+					pending.resolve(message.payload);
 				} else {
-					const error = (message as IpcErrorResponse).error;
-					pending.reject(new Error(`${error.code}: ${error.message}`));
+					pending.reject(
+						new Error(`${message.error.code}: ${message.error.message}`),
+					);
 				}
 			}
 		} else if (message.type === "event") {
-			// Event from daemon
-			const event = message as IpcEvent;
-			const payload = event.payload as
+			// Event from daemon - narrow payload based on type field
+			const { sessionId, payload } = message;
+			const eventPayload = payload as
 				| TerminalDataEvent
 				| TerminalExitEvent
 				| TerminalErrorEvent;
 
-			if (payload.type === "data") {
-				this.emit("data", event.sessionId, (payload as TerminalDataEvent).data);
-			} else if (payload.type === "exit") {
-				const exitPayload = payload as TerminalExitEvent;
-				this.emit(
-					"exit",
-					event.sessionId,
-					exitPayload.exitCode,
-					exitPayload.signal,
-				);
-			} else if (payload.type === "error") {
-				const errorPayload = payload as TerminalErrorEvent;
-				// Emit terminal-specific error so callers can handle it
-				// This is critical for "Write queue full" - paste was silently dropped before!
-				this.emit(
-					"terminalError",
-					event.sessionId,
-					errorPayload.error,
-					errorPayload.code,
-				);
+			switch (eventPayload.type) {
+				case "data":
+					this.emit("data", sessionId, eventPayload.data);
+					break;
+				case "exit":
+					this.emit(
+						"exit",
+						sessionId,
+						eventPayload.exitCode,
+						eventPayload.signal,
+					);
+					break;
+				case "error":
+					// Emit terminal-specific error so callers can handle it
+					// This is critical for "Write queue full" - paste was silently dropped before!
+					this.emit(
+						"terminalError",
+						sessionId,
+						eventPayload.error,
+						eventPayload.code,
+					);
+					break;
 			}
 		}
 	}
@@ -435,10 +453,10 @@ export class TerminalHostClient extends EventEmitter {
 
 		const token = readFileSync(TOKEN_PATH, "utf-8").trim();
 
-		const response = (await this.sendRequest("hello", {
+		const response = await this.sendRequest<HelloResponse>("hello", {
 			token,
 			protocolVersion: PROTOCOL_VERSION,
-		})) as HelloResponse;
+		});
 
 		if (response.protocolVersion !== PROTOCOL_VERSION) {
 			throw new Error(
@@ -540,12 +558,16 @@ export class TerminalHostClient extends EventEmitter {
 		if (existsSync(SOCKET_PATH)) {
 			const isLive = await this.isSocketLive();
 			if (isLive) {
-				console.log("[TerminalHostClient] Socket is live, daemon is running");
+				if (DEBUG_CLIENT) {
+					console.log("[TerminalHostClient] Socket is live, daemon is running");
+				}
 				return;
 			}
 
 			// Socket exists but not responsive - safe to remove
-			console.log("[TerminalHostClient] Removing stale socket file");
+			if (DEBUG_CLIENT) {
+				console.log("[TerminalHostClient] Removing stale socket file");
+			}
 			try {
 				unlinkSync(SOCKET_PATH);
 			} catch {
@@ -556,7 +578,9 @@ export class TerminalHostClient extends EventEmitter {
 		// Also clean up stale PID file if socket was not live
 		// This handles the case where daemon crashed and PID was reused
 		if (existsSync(PID_PATH)) {
-			console.log("[TerminalHostClient] Removing stale PID file");
+			if (DEBUG_CLIENT) {
+				console.log("[TerminalHostClient] Removing stale PID file");
+			}
 			try {
 				unlinkSync(PID_PATH);
 			} catch {
@@ -566,7 +590,11 @@ export class TerminalHostClient extends EventEmitter {
 
 		// Acquire spawn lock to prevent concurrent spawns
 		if (!this.acquireSpawnLock()) {
-			console.log("[TerminalHostClient] Another spawn in progress, waiting...");
+			if (DEBUG_CLIENT) {
+				console.log(
+					"[TerminalHostClient] Another spawn in progress, waiting...",
+				);
+			}
 			// Wait for the other spawn to complete
 			await this.waitForDaemon();
 			return;
@@ -575,18 +603,22 @@ export class TerminalHostClient extends EventEmitter {
 		try {
 			// Get path to daemon script
 			const daemonScript = this.getDaemonScriptPath();
-			console.log(`[TerminalHostClient] Daemon script path: ${daemonScript}`);
-			console.log(
-				`[TerminalHostClient] Script exists: ${existsSync(daemonScript)}`,
-			);
+			if (DEBUG_CLIENT) {
+				console.log(`[TerminalHostClient] Daemon script path: ${daemonScript}`);
+				console.log(
+					`[TerminalHostClient] Script exists: ${existsSync(daemonScript)}`,
+				);
+			}
 
 			if (!existsSync(daemonScript)) {
 				throw new Error(`Daemon script not found: ${daemonScript}`);
 			}
 
-			console.log(
-				`[TerminalHostClient] Spawning daemon with execPath: ${process.execPath}`,
-			);
+			if (DEBUG_CLIENT) {
+				console.log(
+					`[TerminalHostClient] Spawning daemon with execPath: ${process.execPath}`,
+				);
+			}
 
 			// Open log file for daemon output (helps debug daemon-side issues)
 			const logPath = join(SUPERSET_HOME_DIR, "daemon.log");
@@ -612,15 +644,23 @@ export class TerminalHostClient extends EventEmitter {
 				},
 			});
 
-			console.log(`[TerminalHostClient] Daemon spawned with PID: ${child.pid}`);
+			if (DEBUG_CLIENT) {
+				console.log(
+					`[TerminalHostClient] Daemon spawned with PID: ${child.pid}`,
+				);
+			}
 
 			// Unref to allow parent to exit independently
 			child.unref();
 
 			// Wait for daemon to start
-			console.log("[TerminalHostClient] Waiting for daemon to start...");
+			if (DEBUG_CLIENT) {
+				console.log("[TerminalHostClient] Waiting for daemon to start...");
+			}
 			await this.waitForDaemon();
-			console.log("[TerminalHostClient] Daemon started successfully");
+			if (DEBUG_CLIENT) {
+				console.log("[TerminalHostClient] Daemon started successfully");
+			}
 		} finally {
 			this.releaseSpawnLock();
 		}
@@ -669,8 +709,8 @@ export class TerminalHostClient extends EventEmitter {
 	/**
 	 * Send a request to the daemon and wait for response
 	 */
-	private sendRequest(type: string, payload: unknown): Promise<unknown> {
-		return new Promise((resolve, reject) => {
+	private sendRequest<T>(type: string, payload: unknown): Promise<T> {
+		return new Promise<T>((resolve, reject) => {
 			if (!this.socket) {
 				reject(new Error("Not connected"));
 				return;
@@ -683,7 +723,12 @@ export class TerminalHostClient extends EventEmitter {
 				reject(new Error(`Request timeout: ${type}`));
 			}, REQUEST_TIMEOUT_MS);
 
-			this.pendingRequests.set(id, { resolve, reject, timeoutId });
+			// Cast resolve to unknown handler - safe because response type matches T
+			this.pendingRequests.set(id, {
+				resolve: resolve as (value: unknown) => void,
+				reject,
+				timeoutId,
+			});
 
 			const message = `${JSON.stringify({ id, type, payload })}\n`;
 			this.socket.write(message);
@@ -757,10 +802,10 @@ export class TerminalHostClient extends EventEmitter {
 		request: CreateOrAttachRequest,
 	): Promise<CreateOrAttachResponse> {
 		await this.ensureConnected();
-		const response = (await this.sendRequest(
+		const response = await this.sendRequest<CreateOrAttachResponse>(
 			"createOrAttach",
 			request,
-		)) as CreateOrAttachResponse;
+		);
 		// Version skew: older daemons may not return pid - normalize undefined → null
 		return { ...response, pid: response.pid ?? null };
 	}
@@ -770,7 +815,7 @@ export class TerminalHostClient extends EventEmitter {
 	 */
 	async write(request: WriteRequest): Promise<EmptyResponse> {
 		await this.ensureConnected();
-		return (await this.sendRequest("write", request)) as EmptyResponse;
+		return this.sendRequest<EmptyResponse>("write", request);
 	}
 
 	/**
@@ -805,7 +850,7 @@ export class TerminalHostClient extends EventEmitter {
 	 */
 	async resize(request: ResizeRequest): Promise<EmptyResponse> {
 		await this.ensureConnected();
-		return (await this.sendRequest("resize", request)) as EmptyResponse;
+		return this.sendRequest<EmptyResponse>("resize", request);
 	}
 
 	/**
@@ -813,7 +858,7 @@ export class TerminalHostClient extends EventEmitter {
 	 */
 	async detach(request: DetachRequest): Promise<EmptyResponse> {
 		await this.ensureConnected();
-		return (await this.sendRequest("detach", request)) as EmptyResponse;
+		return this.sendRequest<EmptyResponse>("detach", request);
 	}
 
 	/**
@@ -821,7 +866,7 @@ export class TerminalHostClient extends EventEmitter {
 	 */
 	async kill(request: KillRequest): Promise<EmptyResponse> {
 		await this.ensureConnected();
-		return (await this.sendRequest("kill", request)) as EmptyResponse;
+		return this.sendRequest<EmptyResponse>("kill", request);
 	}
 
 	/**
@@ -829,7 +874,7 @@ export class TerminalHostClient extends EventEmitter {
 	 */
 	async killAll(request: KillAllRequest): Promise<EmptyResponse> {
 		await this.ensureConnected();
-		return (await this.sendRequest("killAll", request)) as EmptyResponse;
+		return this.sendRequest<EmptyResponse>("killAll", request);
 	}
 
 	/**
@@ -837,10 +882,10 @@ export class TerminalHostClient extends EventEmitter {
 	 */
 	async listSessions(): Promise<ListSessionsResponse> {
 		await this.ensureConnected();
-		const response = (await this.sendRequest(
+		const response = await this.sendRequest<ListSessionsResponse>(
 			"listSessions",
 			undefined,
-		)) as ListSessionsResponse;
+		);
 		// Version skew: older daemons may not return pid - normalize undefined → null
 		return {
 			sessions: response.sessions.map((s) => ({ ...s, pid: s.pid ?? null })),
@@ -854,10 +899,7 @@ export class TerminalHostClient extends EventEmitter {
 		request: ClearScrollbackRequest,
 	): Promise<EmptyResponse> {
 		await this.ensureConnected();
-		return (await this.sendRequest(
-			"clearScrollback",
-			request,
-		)) as EmptyResponse;
+		return this.sendRequest<EmptyResponse>("clearScrollback", request);
 	}
 
 	/**
@@ -867,10 +909,7 @@ export class TerminalHostClient extends EventEmitter {
 	 */
 	async shutdown(request: ShutdownRequest = {}): Promise<EmptyResponse> {
 		await this.ensureConnected();
-		const response = (await this.sendRequest(
-			"shutdown",
-			request,
-		)) as EmptyResponse;
+		const response = await this.sendRequest<EmptyResponse>("shutdown", request);
 		// Disconnect after shutdown request is sent
 		this.disconnect();
 		return response;
@@ -890,7 +929,7 @@ export class TerminalHostClient extends EventEmitter {
 		}
 
 		try {
-			await this.sendRequest("shutdown", request);
+			await this.sendRequest<EmptyResponse>("shutdown", request);
 		} finally {
 			this.disconnect();
 		}

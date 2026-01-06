@@ -15,7 +15,6 @@ import { getWorkspacePath } from "../workspaces/utils/worktree";
 import { resolveCwd } from "./utils";
 
 const DEBUG_TERMINAL = process.env.SUPERSET_TERMINAL_DEBUG === "1";
-let createOrAttachCallCounter = 0;
 
 /**
  * Terminal router using TerminalManager with node-pty
@@ -56,8 +55,6 @@ export const createTerminalRouter = () => {
 				}),
 			)
 			.mutation(async ({ input }) => {
-				const callId = ++createOrAttachCallCounter;
-				const startedAt = Date.now();
 				const {
 					paneId,
 					tabId,
@@ -121,11 +118,9 @@ export const createTerminalRouter = () => {
 
 					if (DEBUG_TERMINAL) {
 						console.log("[Terminal Router] createOrAttach result:", {
-							callId,
 							paneId,
 							isNew: result.isNew,
 							wasRecovered: result.wasRecovered,
-							durationMs: Date.now() - startedAt,
 						});
 					}
 
@@ -144,9 +139,7 @@ export const createTerminalRouter = () => {
 				} catch (error) {
 					if (DEBUG_TERMINAL) {
 						console.warn("[Terminal Router] createOrAttach failed:", {
-							callId,
 							paneId,
-							durationMs: Date.now() - startedAt,
 							error: error instanceof Error ? error.message : String(error),
 						});
 					}
