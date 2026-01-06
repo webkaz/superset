@@ -6,10 +6,21 @@ import {
 	MIN_SIDEBAR_WIDTH,
 } from "renderer/stores/sidebar-state";
 import { useTabsStore } from "renderer/stores/tabs/store";
+import type { Pane, Tab } from "renderer/stores/tabs/types";
+import { extractPaneIdsFromLayout } from "renderer/stores/tabs/utils";
 import { ResizablePanel } from "../../../ResizablePanel";
 import { Sidebar } from "../../Sidebar";
 import { EmptyTabView } from "./EmptyTabView";
 import { TabView } from "./TabView";
+
+/**
+ * Check if a tab contains at least one terminal pane.
+ * Used to determine which tabs need to stay mounted for persistence.
+ */
+function hasTerminalPane(tab: Tab, panes: Record<string, Pane>): boolean {
+	const paneIds = extractPaneIdsFromLayout(tab.layout);
+	return paneIds.some((paneId) => panes[paneId]?.type === "terminal");
+}
 
 export function TabsContent() {
 	const { data: activeWorkspace } = trpc.workspaces.getActive.useQuery();
@@ -42,9 +53,10 @@ export function TabsContent() {
 		return allTabs.find((tab) => tab.id === activeTabId) || null;
 	}, [activeTabId, allTabs]);
 
-	// When terminal persistence is enabled, keep all terminals mounted across
-	// workspace/tab switches. This prevents TUI white screen issues by avoiding
-	// the unmount/remount cycle that requires complex reattach/rehydration logic.
+	// When terminal persistence is enabled, keep terminal-containing tabs mounted
+	// across workspace/tab switches. This prevents TUI white screen issues by
+	// avoiding the unmount/remount cycle that requires complex reattach/rehydration.
+	// Non-terminal tabs use normal unmount behavior to save memory.
 	// Uses visibility:hidden (not display:none) to preserve xterm dimensions.
 	if (terminalPersistence) {
 		// Show empty view only if current workspace has no tabs
@@ -71,13 +83,18 @@ export function TabsContent() {
 			);
 		}
 
+		// Partition tabs: terminal tabs stay mounted, non-terminal tabs unmount when inactive
+		const terminalTabs = allTabs.filter((tab) => hasTerminalPane(tab, panes));
+		const activeNonTerminalTab =
+			tabToRender && !hasTerminalPane(tabToRender, panes)
+				? tabToRender
+				: null;
+
 		return (
 			<div className="flex-1 min-h-0 flex overflow-hidden">
 				<div className="relative flex-1 min-w-0">
-					{allTabs.map((tab) => {
-						// A tab is visible only if:
-						// 1. It belongs to the active workspace AND
-						// 2. It's the active tab for that workspace
+					{/* Terminal tabs: keep mounted with visibility toggle */}
+					{terminalTabs.map((tab) => {
 						const isVisible =
 							tab.workspaceId === activeWorkspaceId && tab.id === activeTabId;
 
@@ -94,6 +111,12 @@ export function TabsContent() {
 							</div>
 						);
 					})}
+					{/* Active non-terminal tab: render normally (unmounts when switching) */}
+					{activeNonTerminalTab && (
+						<div className="absolute inset-0">
+							<TabView tab={activeNonTerminalTab} panes={panes} />
+						</div>
+					)}
 				</div>
 				{isSidebarOpen && (
 					<ResizablePanel

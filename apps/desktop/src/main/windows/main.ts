@@ -17,7 +17,7 @@ import {
 	notificationsApp,
 	notificationsEmitter,
 } from "../lib/notifications/server";
-import { terminalManager } from "../lib/terminal";
+import { getActiveTerminalManager } from "../lib/terminal";
 import {
 	getInitialWindowBounds,
 	loadWindowState,
@@ -193,7 +193,7 @@ export async function MainWindow() {
 		server.close();
 		notificationsEmitter.removeAllListeners();
 		// Remove terminal listeners to prevent duplicates when window reopens on macOS
-		terminalManager.detachAllListeners();
+		getActiveTerminalManager().detachAllListeners();
 		// Detach window from IPC handler (handler stays alive for window reopen)
 		ipcHandler?.detachWindow(window);
 		// Clear current window reference

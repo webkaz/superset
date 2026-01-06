@@ -833,7 +833,7 @@ export class TerminalHostClient extends EventEmitter {
 						"terminalError",
 						request.sessionId,
 						"Write queue full - input dropped",
-						"QUEUE_FULL",
+						"WRITE_QUEUE_FULL",
 					);
 				}
 			})

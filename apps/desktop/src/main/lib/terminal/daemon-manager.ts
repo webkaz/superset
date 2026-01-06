@@ -10,7 +10,9 @@
  */
 
 import { EventEmitter } from "node:events";
+import { workspaces } from "@superset/local-db";
 import { track } from "main/lib/analytics";
+import { localDb } from "main/lib/local-db";
 import {
 	containsClearScrollbackSequence,
 	extractContentAfterClear,
@@ -93,20 +95,47 @@ export class DaemonTerminalManager extends EventEmitter {
 	}
 
 	/**
-	 * Clean up stale sessions from previous app runs.
-	 * Call this on app startup BEFORE renderer restore runs.
-	 *
-	 * Current semantics: terminal persistence = across workspace switches only.
-	 * App restart = fresh start (kill all stale daemon sessions).
+	 * Reconcile daemon sessions on app startup.
+	 * Sessions are preserved for reattachment when renderer restores panes.
+	 * Orphaned sessions (workspaces deleted while app was closed) are cleaned up.
 	 */
 	async reconcileOnStartup(): Promise<void> {
 		try {
 			const response = await this.client.listSessions();
-			if (response.sessions.length > 0) {
+			if (response.sessions.length === 0) {
+				return;
+			}
+
+			console.log(
+				`[DaemonTerminalManager] Found ${response.sessions.length} sessions from previous run`,
+			);
+
+			// Get valid workspace IDs from database
+			const validWorkspaceIds = new Set(
+				localDb
+					.select({ id: workspaces.id })
+					.from(workspaces)
+					.all()
+					.map((w) => w.id),
+			);
+
+			// Kill sessions for deleted workspaces, keep others for reattach
+			let orphanedCount = 0;
+			for (const session of response.sessions) {
+				if (!validWorkspaceIds.has(session.workspaceId)) {
+					console.log(
+						`[DaemonTerminalManager] Killing orphaned session ${session.sessionId} (workspace deleted)`,
+					);
+					await this.client.kill({ sessionId: session.sessionId });
+					orphanedCount++;
+				}
+			}
+
+			const preservedCount = response.sessions.length - orphanedCount;
+			if (preservedCount > 0) {
 				console.log(
-					`[DaemonTerminalManager] Cleaning up ${response.sessions.length} stale sessions from previous run`,
+					`[DaemonTerminalManager] Preserving ${preservedCount} sessions for reattach`,
 				);
-				await this.client.killAll({});
 			}
 		} catch (error) {
 			console.warn(
@@ -229,9 +258,28 @@ export class DaemonTerminalManager extends EventEmitter {
 		this.historyInitializing.add(paneId);
 		this.pendingHistoryData.set(paneId, []);
 
+		// Safety check: validate and cap initialScrollback to prevent RangeError
+		// Large snapshots can cause Buffer.from() to fail with "Invalid array length"
+		const MAX_SCROLLBACK_BYTES = 512 * 1024; // 512KB
+		let safeScrollback = initialScrollback;
+		if (initialScrollback !== undefined) {
+			if (typeof initialScrollback !== "string") {
+				console.warn(
+					`[DaemonTerminalManager] initialScrollback for ${paneId} is not a string, ignoring`,
+				);
+				safeScrollback = undefined;
+			} else if (initialScrollback.length > MAX_SCROLLBACK_BYTES) {
+				console.warn(
+					`[DaemonTerminalManager] initialScrollback for ${paneId} too large (${initialScrollback.length} bytes), truncating to ${MAX_SCROLLBACK_BYTES}`,
+				);
+				// Keep the most recent content (end of scrollback)
+				safeScrollback = initialScrollback.slice(-MAX_SCROLLBACK_BYTES);
+			}
+		}
+
 		try {
 			const writer = new HistoryWriter(workspaceId, paneId, cwd, cols, rows);
-			await writer.init(initialScrollback);
+			await writer.init(safeScrollback);
 			this.historyWriters.set(paneId, writer);
 
 			// Flush any buffered data
@@ -601,23 +649,25 @@ export class DaemonTerminalManager extends EventEmitter {
 			return;
 		}
 
-		const session = this.sessions.get(paneId);
-		if (!session || !session.isAlive) {
-			console.warn(
-				`Cannot resize terminal ${paneId}: session not found or not alive`,
-			);
-			return;
-		}
-
-		// Fire and forget
+		// Fire and forget to daemon - don't require local session cache
+		// This handles startup race where renderer sends resize before createOrAttach completes
+		// Daemon will silently ignore resize for non-existent sessions
 		this.client.resize({ sessionId: paneId, cols, rows }).catch((error) => {
-			console.error(
-				`[DaemonTerminalManager] Resize failed for ${paneId}:`,
-				error,
-			);
+			// Only log if it's not a "session not found" error (expected during startup)
+			const errorMsg = error instanceof Error ? error.message : String(error);
+			if (!errorMsg.includes("not found")) {
+				console.error(
+					`[DaemonTerminalManager] Resize failed for ${paneId}:`,
+					error,
+				);
+			}
 		});
 
-		session.lastActive = Date.now();
+		// Update local session if we have it
+		const session = this.sessions.get(paneId);
+		if (session) {
+			session.lastActive = Date.now();
+		}
 	}
 
 	signal(params: { paneId: string; signal?: string }): void {
