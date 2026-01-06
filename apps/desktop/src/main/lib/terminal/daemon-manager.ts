@@ -33,6 +33,7 @@ import type { CreateSessionParams, SessionResult } from "./types";
 
 /** Delay before removing session from local cache after exit event */
 const SESSION_CLEANUP_DELAY_MS = 5000;
+const DEBUG_TERMINAL = process.env.SUPERSET_TERMINAL_DEBUG === "1";
 
 // =============================================================================
 // Types
@@ -322,7 +323,12 @@ export class DaemonTerminalManager extends EventEmitter {
 			const session = this.sessions.get(paneId);
 			if (session) {
 				// Close current writer and reinitialize with empty scrollback
-				writer.close().catch(() => {});
+				writer.close().catch((error) => {
+					console.warn(
+						`[DaemonTerminalManager] Failed to close history writer for ${paneId}:`,
+						error,
+					);
+				});
 				this.historyWriters.delete(paneId);
 
 				// Create new writer (will only contain content after clear)
@@ -331,10 +337,15 @@ export class DaemonTerminalManager extends EventEmitter {
 					paneId,
 					session.workspaceId,
 					session.cwd,
-					80, // cols - will be updated on next resize
-					24, // rows - will be updated on next resize
+					session.cols,
+					session.rows,
 					contentAfterClear || undefined,
-				).catch(() => {});
+				).catch((error) => {
+					console.warn(
+						`[DaemonTerminalManager] Failed to reinitialize history writer for ${paneId}:`,
+						error,
+					);
+				});
 			}
 			return;
 		}
@@ -465,13 +476,15 @@ export class DaemonTerminalManager extends EventEmitter {
 			rootPath,
 		});
 
-		console.log("[DaemonTerminalManager] Calling daemon createOrAttach:", {
-			paneId,
-			shell,
-			cwd,
-			cols,
-			rows,
-		});
+		if (DEBUG_TERMINAL) {
+			console.log("[DaemonTerminalManager] Calling daemon createOrAttach:", {
+				paneId,
+				shell,
+				cwd,
+				cols,
+				rows,
+			});
+		}
 
 		// Call daemon
 		const response = await this.client.createOrAttach({
@@ -499,6 +512,10 @@ export class DaemonTerminalManager extends EventEmitter {
 			? previousCwd || cwd || ""
 			: response.snapshot.cwd || cwd || "";
 
+		// Guard against invalid dimensions (can happen if terminal not yet sized)
+		const effectiveCols = response.snapshot.cols || cols;
+		const effectiveRows = response.snapshot.rows || rows;
+
 		// Track session locally
 		this.sessions.set(paneId, {
 			paneId,
@@ -507,8 +524,8 @@ export class DaemonTerminalManager extends EventEmitter {
 			lastActive: Date.now(),
 			cwd: sessionCwd,
 			pid: response.pid,
-			cols: response.snapshot.cols || cols,
-			rows: response.snapshot.rows || rows,
+			cols: effectiveCols,
+			rows: effectiveRows,
 		});
 
 		// Register with port manager for process-based port scanning
@@ -522,10 +539,6 @@ export class DaemonTerminalManager extends EventEmitter {
 		const initialScrollback = response.wasRecovered
 			? response.snapshot.snapshotAnsi
 			: undefined;
-
-		// Guard against invalid dimensions (can happen if terminal not yet sized)
-		const effectiveCols = response.snapshot.cols || cols;
-		const effectiveRows = response.snapshot.rows || rows;
 
 		if (effectiveCols >= 1 && effectiveRows >= 1) {
 			this.initHistoryWriter(
@@ -667,6 +680,8 @@ export class DaemonTerminalManager extends EventEmitter {
 		const session = this.sessions.get(paneId);
 		if (session) {
 			session.lastActive = Date.now();
+			session.cols = cols;
+			session.rows = rows;
 		}
 	}
 
@@ -754,16 +769,28 @@ export class DaemonTerminalManager extends EventEmitter {
 			// Reinitialize history file (clear the scrollback on disk too)
 			const writer = this.historyWriters.get(paneId);
 			if (writer) {
-				await writer.close().catch(() => {});
+				await writer.close().catch((error) => {
+					console.warn(
+						`[DaemonTerminalManager] Failed to close history writer for ${paneId}:`,
+						error,
+					);
+				});
 				this.historyWriters.delete(paneId);
-				await this.initHistoryWriter(
-					paneId,
-					session.workspaceId,
-					session.cwd,
-					80,
-					24,
-					undefined,
-				);
+				try {
+					await this.initHistoryWriter(
+						paneId,
+						session.workspaceId,
+						session.cwd,
+						session.cols,
+						session.rows,
+						undefined,
+					);
+				} catch (error) {
+					console.warn(
+						`[DaemonTerminalManager] Failed to reinitialize history writer for ${paneId}:`,
+						error,
+					);
+				}
 			}
 		}
 	}
@@ -955,7 +982,12 @@ export class DaemonTerminalManager extends EventEmitter {
 	async forceKillAll(): Promise<void> {
 		// Close all history writers
 		for (const writer of this.historyWriters.values()) {
-			await writer.close().catch(() => {});
+			await writer.close().catch((error) => {
+				console.warn(
+					"[DaemonTerminalManager] Failed to close history writer during forceKillAll:",
+					error,
+				);
+			});
 		}
 		this.historyWriters.clear();
 		this.historyInitializing.clear();

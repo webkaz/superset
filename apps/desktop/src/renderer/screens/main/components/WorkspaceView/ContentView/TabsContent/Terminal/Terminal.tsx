@@ -646,8 +646,11 @@ export const Terminal = ({ tabId, workspaceId }: TerminalProps) => {
 		coldRestoreState.delete(paneId);
 
 		// Acknowledge cold restore to main process (clears sticky state)
-		trpcClient.terminal.ackColdRestore.mutate({ paneId }).catch(() => {
-			// Ignore errors - not critical
+		trpcClient.terminal.ackColdRestore.mutate({ paneId }).catch((error) => {
+			console.warn("[Terminal] Failed to acknowledge cold restore:", {
+				paneId,
+				error: error instanceof Error ? error.message : String(error),
+			});
 		});
 
 		// Add visual separator

@@ -3,6 +3,7 @@ import {
 	TERMINAL_LINK_BEHAVIORS,
 	type TerminalPreset,
 } from "@superset/local-db";
+import { TRPCError } from "@trpc/server";
 import { localDb } from "main/lib/local-db";
 import {
 	DEFAULT_CONFIRM_ON_QUIT,
@@ -82,7 +83,10 @@ export const createSettingsRouter = () => {
 				const preset = presets.find((p) => p.id === input.id);
 
 				if (!preset) {
-					throw new Error(`Preset ${input.id} not found`);
+					throw new TRPCError({
+						code: "NOT_FOUND",
+						message: `Terminal preset ${input.id} not found`,
+					});
 				}
 
 				if (input.patch.name !== undefined) preset.name = input.patch.name;
@@ -183,7 +187,10 @@ export const createSettingsRouter = () => {
 			.input(z.object({ ringtoneId: z.string() }))
 			.mutation(({ input }) => {
 				if (!VALID_RINGTONE_IDS.includes(input.ringtoneId)) {
-					throw new Error(`Invalid ringtone ID: ${input.ringtoneId}`);
+					throw new TRPCError({
+						code: "BAD_REQUEST",
+						message: `Invalid ringtone ID: ${input.ringtoneId}`,
+					});
 				}
 
 				localDb

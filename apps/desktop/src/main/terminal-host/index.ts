@@ -21,7 +21,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { createServer, type Server, type Socket } from "node:net";
+import { createServer, type Server, Socket } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -176,7 +176,7 @@ type RequestHandler = (
 	id: string,
 	payload: unknown,
 	clientState: ClientState,
-) => void;
+) => void | Promise<void>;
 
 interface ClientState {
 	authenticated: boolean;
@@ -598,7 +598,7 @@ function isSocketLive(): Promise<boolean> {
 			return;
 		}
 
-		const testSocket = new (require("node:net").Socket)();
+		const testSocket = new Socket();
 		const timeout = setTimeout(() => {
 			testSocket.destroy();
 			resolve(false);

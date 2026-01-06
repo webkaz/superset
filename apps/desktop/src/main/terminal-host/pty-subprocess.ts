@@ -278,17 +278,19 @@ function handleSpawn(payload: Buffer): void {
 		return;
 	}
 
-	// Debug: Log spawn parameters
-	console.error("[pty-subprocess] Spawning PTY:", {
-		shell: msg.shell,
-		args: msg.args,
-		cwd: msg.cwd,
-		cols: msg.cols,
-		rows: msg.rows,
-		ZDOTDIR: msg.env.ZDOTDIR,
-		SUPERSET_ORIG_ZDOTDIR: msg.env.SUPERSET_ORIG_ZDOTDIR,
-		PATH_start: msg.env.PATH?.substring(0, 100),
-	});
+	if (DEBUG_OUTPUT_BATCHING) {
+		// Debug: Log spawn parameters
+		console.error("[pty-subprocess] Spawning PTY:", {
+			shell: msg.shell,
+			args: msg.args,
+			cwd: msg.cwd,
+			cols: msg.cols,
+			rows: msg.rows,
+			ZDOTDIR: msg.env.ZDOTDIR,
+			SUPERSET_ORIG_ZDOTDIR: msg.env.SUPERSET_ORIG_ZDOTDIR,
+			PATH_start: msg.env.PATH?.substring(0, 100),
+		});
+	}
 
 	try {
 		ptyProcess = pty.spawn(msg.shell, msg.args, {

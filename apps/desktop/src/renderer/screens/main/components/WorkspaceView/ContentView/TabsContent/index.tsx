@@ -38,15 +38,17 @@ export function TabsContent() {
 		setIsResizing,
 	} = useSidebarStore();
 
-	const activeTabId = activeWorkspaceId
-		? activeTabIds[activeWorkspaceId]
-		: null;
+	const activeTabId = useMemo(() => {
+		if (!activeWorkspaceId) return null;
 
-	// Get all tabs for current workspace (for fallback/empty check)
-	const currentWorkspaceTabs = useMemo(() => {
-		if (!activeWorkspaceId) return [];
-		return allTabs.filter((tab) => tab.workspaceId === activeWorkspaceId);
-	}, [activeWorkspaceId, allTabs]);
+		// Prefer the store's active tab, but fall back to the first tab to avoid a
+		// blank render when activeTabIds isn't hydrated yet.
+		return (
+			activeTabIds[activeWorkspaceId] ??
+			allTabs.find((tab) => tab.workspaceId === activeWorkspaceId)?.id ??
+			null
+		);
+	}, [activeWorkspaceId, activeTabIds, allTabs]);
 
 	const tabToRender = useMemo(() => {
 		if (!activeTabId) return null;
@@ -59,30 +61,6 @@ export function TabsContent() {
 	// Non-terminal tabs use normal unmount behavior to save memory.
 	// Uses visibility:hidden (not display:none) to preserve xterm dimensions.
 	if (terminalPersistence) {
-		// Show empty view only if current workspace has no tabs
-		if (currentWorkspaceTabs.length === 0) {
-			return (
-				<div className="flex-1 min-h-0 flex overflow-hidden">
-					<div className="flex-1 min-w-0 overflow-hidden">
-						<EmptyTabView />
-					</div>
-					{isSidebarOpen && (
-						<ResizablePanel
-							width={sidebarWidth}
-							onWidthChange={setSidebarWidth}
-							isResizing={isResizing}
-							onResizingChange={setIsResizing}
-							minWidth={MIN_SIDEBAR_WIDTH}
-							maxWidth={MAX_SIDEBAR_WIDTH}
-							handleSide="left"
-						>
-							<Sidebar />
-						</ResizablePanel>
-					)}
-				</div>
-			);
-		}
-
 		// Partition tabs: terminal tabs stay mounted, non-terminal tabs unmount when inactive
 		const terminalTabs = allTabs.filter((tab) => hasTerminalPane(tab, panes));
 		const activeNonTerminalTab =
@@ -113,6 +91,12 @@ export function TabsContent() {
 					{activeNonTerminalTab && (
 						<div className="absolute inset-0">
 							<TabView tab={activeNonTerminalTab} panes={panes} />
+						</div>
+					)}
+					{/* Fallback: show empty view without unmounting terminal tabs */}
+					{!activeNonTerminalTab && !tabToRender && (
+						<div className="absolute inset-0 overflow-hidden">
+							<EmptyTabView />
 						</div>
 					)}
 				</div>

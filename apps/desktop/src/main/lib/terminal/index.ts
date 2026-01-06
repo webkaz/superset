@@ -28,6 +28,7 @@ export type {
 // Cache the daemon mode setting to avoid repeated DB reads
 // This is set once at app startup and doesn't change until restart
 let cachedDaemonMode: boolean | null = null;
+const DEBUG_TERMINAL = process.env.SUPERSET_TERMINAL_DEBUG === "1";
 
 /**
  * Check if daemon mode is enabled.
@@ -76,7 +77,12 @@ export function getActiveTerminalManager():
 	| TerminalManager
 	| DaemonTerminalManager {
 	const daemonEnabled = isDaemonModeEnabled();
-	console.log("[getActiveTerminalManager] Daemon mode enabled:", daemonEnabled);
+	if (DEBUG_TERMINAL) {
+		console.log(
+			"[getActiveTerminalManager] Daemon mode enabled:",
+			daemonEnabled,
+		);
+	}
 	if (daemonEnabled) {
 		return getDaemonTerminalManager();
 	}
@@ -88,8 +94,9 @@ export function getActiveTerminalManager():
  * Should be called on app startup when daemon mode is ENABLED to clean up
  * stale sessions from previous app runs.
  *
- * Current semantics: terminal persistence = across workspace switches only.
- * App restart = fresh start (kill all stale daemon sessions).
+ * Current semantics: terminal persistence survives app restarts.
+ * Reconciliation removes sessions that no longer map to existing workspaces and
+ * restores state for sessions that can be retained.
  */
 export async function reconcileDaemonSessions(): Promise<void> {
 	if (!isDaemonModeEnabled()) {

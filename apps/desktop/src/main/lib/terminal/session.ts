@@ -205,7 +205,17 @@ export function setupDataHandler(
 								setTimeout(resolve, AGENT_HOOKS_TIMEOUT_MS),
 							);
 							await Promise.race([beforeInitialCommands, timeout]).catch(
-								() => {},
+								(error) => {
+									console.warn(
+										"[terminal/session] Initial command preconditions failed:",
+										{
+											paneId: session.paneId,
+											workspaceId: session.workspaceId,
+											error:
+												error instanceof Error ? error.message : String(error),
+										},
+									);
+								},
 							);
 						}
 
