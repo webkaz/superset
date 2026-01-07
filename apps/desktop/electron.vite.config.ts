@@ -73,7 +73,6 @@ export default defineConfig({
 					"better-sqlite3",
 					"node-pty",
 					/^@sentry\/electron/,
-					/^@xterm\//, // xterm packages have incorrect exports for bundlers
 				],
 			},
 		},
