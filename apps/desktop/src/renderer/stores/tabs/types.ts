@@ -49,9 +49,11 @@ export interface AddFileViewerPaneOptions {
 export interface AddPlanViewerPaneOptions {
 	content: string;
 	planId: string;
+	planPath: string;
 	originPaneId: string;
 	summary?: string;
 	agentType?: "opencode" | "claude";
+	token?: string;
 }
 
 /**

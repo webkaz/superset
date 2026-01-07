@@ -3,6 +3,7 @@ import {
 	type AgentCompleteEvent,
 	type NotificationIds,
 	notificationsEmitter,
+	type PlanResponseEvent,
 	type PlanSubmittedEvent,
 } from "main/lib/notifications/server";
 import { NOTIFICATION_EVENTS } from "shared/constants";
@@ -17,6 +18,10 @@ type NotificationEvent =
 	| {
 			type: typeof NOTIFICATION_EVENTS.PLAN_SUBMITTED;
 			data: PlanSubmittedEvent;
+	  }
+	| {
+			type: typeof NOTIFICATION_EVENTS.PLAN_RESPONSE;
+			data: PlanResponseEvent;
 	  };
 
 export const createNotificationsRouter = () => {
@@ -35,11 +40,19 @@ export const createNotificationsRouter = () => {
 					emit.next({ type: NOTIFICATION_EVENTS.PLAN_SUBMITTED, data });
 				};
 
+				const onPlanResponse = (data: PlanResponseEvent) => {
+					emit.next({ type: NOTIFICATION_EVENTS.PLAN_RESPONSE, data });
+				};
+
 				notificationsEmitter.on(NOTIFICATION_EVENTS.AGENT_COMPLETE, onComplete);
 				notificationsEmitter.on(NOTIFICATION_EVENTS.FOCUS_TAB, onFocusTab);
 				notificationsEmitter.on(
 					NOTIFICATION_EVENTS.PLAN_SUBMITTED,
 					onPlanSubmitted,
+				);
+				notificationsEmitter.on(
+					NOTIFICATION_EVENTS.PLAN_RESPONSE,
+					onPlanResponse,
 				);
 
 				return () => {
@@ -51,6 +64,10 @@ export const createNotificationsRouter = () => {
 					notificationsEmitter.off(
 						NOTIFICATION_EVENTS.PLAN_SUBMITTED,
 						onPlanSubmitted,
+					);
+					notificationsEmitter.off(
+						NOTIFICATION_EVENTS.PLAN_RESPONSE,
+						onPlanResponse,
 					);
 				};
 			});

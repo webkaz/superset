@@ -85,9 +85,10 @@ export function getClaudeSettingsContent(
 			Stop: [{ hooks: [{ type: "command", command: notifyPath }] }],
 			PermissionRequest: [
 				// ExitPlanMode hook - captures plan content and displays in Superset
+				// timeout: 1800 = 30 minutes for user to review and approve/reject
 				{
 					matcher: "ExitPlanMode",
-					hooks: [{ type: "command", command: planHookPath }],
+					hooks: [{ type: "command", command: planHookPath, timeout: 1800 }],
 				},
 				// All other permission requests - just notify for attention
 				{ matcher: "*", hooks: [{ type: "command", command: notifyPath }] },
@@ -105,50 +106,155 @@ export function getClaudePlanHookContent(
 	return `#!/bin/bash
 # Superset plan hook for Claude Code
 # Called when ExitPlanMode permission is requested
-# Extracts plan content from stdin, writes to temp file, notifies main process
+# Extracts plan content, writes to temp file, notifies main process,
+# then waits for user approval/rejection
+
+# Debug log function
+LOG_FILE="${plansTmpDir}/hook-debug.log"
+log_debug() {
+  echo "[\$(date '+%Y-%m-%d %H:%M:%S')] \$1" >> "$LOG_FILE"
+}
+
+# Trap signals to log when we're killed
+trap 'log_debug "Received SIGTERM"; exit 143' TERM
+trap 'log_debug "Received SIGINT"; exit 130' INT
+trap 'log_debug "Received SIGHUP"; exit 129' HUP
+
+log_debug "Hook started, PID=$$"
 
 # Only run if inside a Superset terminal
-[ -z "$SUPERSET_TAB_ID" ] && { echo '{"behavior":"allow"}'; exit 0; }
+if [ -z "$SUPERSET_TAB_ID" ]; then
+  log_debug "No SUPERSET_TAB_ID, allowing"
+  echo '{"behavior":"allow"}'
+  exit 0
+fi
+
+log_debug "SUPERSET_TAB_ID=$SUPERSET_TAB_ID, SUPERSET_PORT=$SUPERSET_PORT"
 
 # Read input from stdin
 INPUT=$(cat)
+log_debug "Read input, length=\${#INPUT}"
 
-# Extract the plan content from tool_input.plan using jq if available, otherwise grep/sed
-if command -v jq &>/dev/null; then
-  PLAN=$(echo "$INPUT" | jq -r '.tool_input.plan // empty')
-else
-  # Fallback: basic extraction (may not work for complex plans)
-  PLAN=""
+# Check if jq is available (required for proper JSON handling)
+if ! command -v jq &>/dev/null; then
+  log_debug "jq not available, allowing"
+  echo '{"behavior":"allow"}' # Allow without review if jq not available
+  exit 0
 fi
 
-# If we got a plan, submit it to Superset
+# Extract the plan content from tool_input.plan
+PLAN=$(echo "$INPUT" | jq -r '.tool_input.plan // empty')
+log_debug "Extracted plan, length=\${#PLAN}"
+
+# If we got a plan, submit it to Superset and wait for approval
 if [ -n "$PLAN" ] && [ "$PLAN" != "null" ]; then
-  # Generate plan ID
+  log_debug "Plan found, proceeding with submission"
+  # Generate plan ID and token
   PLAN_ID="plan-$(date +%s)-$RANDOM"
+  TOKEN=$(head -c 16 /dev/urandom 2>/dev/null | base64 2>/dev/null | tr -dc 'a-zA-Z0-9' | head -c 12)
+  [ -z "$TOKEN" ] && TOKEN="$RANDOM$RANDOM$RANDOM"
 
   # Ensure plans directory exists
   PLANS_DIR="${plansTmpDir}"
   mkdir -p "$PLANS_DIR"
 
-  # Write plan to temp file
+  # Define file paths
   PLAN_PATH="$PLANS_DIR/$PLAN_ID.md"
+  WAITING_PATH="$PLANS_DIR/$PLAN_ID.waiting"
+  RESPONSE_PATH="$PLANS_DIR/$PLAN_ID.response"
+
+  # Write plan to temp file
   echo "$PLAN" > "$PLAN_PATH"
 
-  # Notify Superset main process (best-effort)
-  curl -sX POST "http://127.0.0.1:\${SUPERSET_PORT:-${notificationPort}}/hook/plan" \\
+  # IMPORTANT: Create .waiting file BEFORE notifying Superset
+  # This prevents race condition where fast approval arrives before we're listening
+  cat > "$WAITING_PATH" << EOF
+{
+  "pid": $$,
+  "token": "$TOKEN",
+  "createdAt": $(date +%s)000,
+  "originPaneId": "$SUPERSET_PANE_ID",
+  "agentType": "claude"
+}
+EOF
+
+  log_debug "Created files: PLAN_PATH=$PLAN_PATH, WAITING_PATH=$WAITING_PATH"
+
+  # NOW notify Superset main process (includes token)
+  CURL_RESULT=$(curl -sX POST "http://127.0.0.1:\${SUPERSET_PORT:-${notificationPort}}/hook/plan" \\
     -H "Content-Type: application/json" \\
     --connect-timeout 1 --max-time 2 \\
+    -w "%{http_code}" \\
     -d "{
       \\"planId\\": \\"$PLAN_ID\\",
       \\"planPath\\": \\"$PLAN_PATH\\",
       \\"originPaneId\\": \\"$SUPERSET_PANE_ID\\",
       \\"workspaceId\\": \\"$SUPERSET_WORKSPACE_ID\\",
-      \\"agentType\\": \\"claude\\"
-    }" > /dev/null 2>&1 || true
-fi
+      \\"agentType\\": \\"claude\\",
+      \\"token\\": \\"$TOKEN\\"
+    }" 2>&1) || true
+  log_debug "Notified Superset, curl result: $CURL_RESULT"
 
-# Always allow ExitPlanMode to proceed
-echo '{"behavior":"allow"}'
+  # Wait for user decision (poll for response file)
+  TIMEOUT=1800  # 30 minutes
+  ELAPSED=0
+  log_debug "Starting poll loop, waiting for $RESPONSE_PATH"
+
+  while [ $ELAPSED -lt $TIMEOUT ]; do
+    if [ -f "$RESPONSE_PATH" ]; then
+      log_debug "Found response file at ELAPSED=$ELAPSED"
+      RESPONSE=$(cat "$RESPONSE_PATH")
+
+      # Validate token matches (prevents stale/cross-plan responses)
+      RESPONSE_TOKEN=$(echo "$RESPONSE" | jq -r '.token // empty')
+      if [ "$RESPONSE_TOKEN" != "$TOKEN" ]; then
+        # Token mismatch - ignore stale response, keep waiting
+        rm -f "$RESPONSE_PATH"
+        sleep 1
+        ELAPSED=$((ELAPSED + 1))
+        continue
+      fi
+
+      # Clean up files
+      rm -f "$RESPONSE_PATH" "$WAITING_PATH"
+
+      # Extract decision and feedback
+      DECISION=$(echo "$RESPONSE" | jq -r '.decision // "approved"')
+      FEEDBACK=$(echo "$RESPONSE" | jq -r '.feedback // empty')
+
+      log_debug "Decision=$DECISION, returning response"
+      if [ "$DECISION" = "approved" ]; then
+        log_debug "Returning allow"
+        echo '{"behavior":"allow"}'
+      else
+        # Include feedback in deny message for Claude to see
+        log_debug "Returning deny with feedback"
+        if [ -n "$FEEDBACK" ]; then
+          jq -n --arg msg "Plan changes requested:\\n\\n$FEEDBACK" '{behavior:"deny",message:$msg}'
+        else
+          echo '{"behavior":"deny","message":"Plan changes requested by user."}'
+        fi
+      fi
+      exit 0
+    fi
+
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+    # Log every 10 seconds
+    if [ $((ELAPSED % 10)) -eq 0 ]; then
+      log_debug "Still polling, ELAPSED=$ELAPSED"
+    fi
+  done
+
+  # Timeout - clean up and deny (safer default)
+  log_debug "TIMEOUT reached, denying"
+  rm -f "$WAITING_PATH"
+  jq -n '{behavior:"deny",message:"Plan review timed out. Please resubmit for approval."}'
+else
+  # No plan content - allow to proceed
+  log_debug "No plan content found, allowing"
+  echo '{"behavior":"allow"}'
+fi
 `;
 }
 

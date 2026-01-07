@@ -21,6 +21,11 @@ export type FileViewerMode = "rendered" | "raw" | "diff";
 export type DiffLayout = "inline" | "side-by-side";
 
 /**
+ * Plan review status
+ */
+export type PlanStatus = "pending" | "approved" | "rejected";
+
+/**
  * Plan viewer pane-specific properties
  */
 export interface PlanViewerState {
@@ -28,10 +33,12 @@ export interface PlanViewerState {
 	content: string;
 	/** Unique identifier for this plan */
 	planId: string;
-	/** Terminal pane that submitted the plan (for future response channel) */
+	/** Path to the plan file on disk */
+	planPath: string;
+	/** Terminal pane that submitted the plan (for response channel) */
 	originPaneId: string;
-	/** Plan review status (future: 'approved' | 'rejected') */
-	status: "pending";
+	/** Plan review status */
+	status: PlanStatus;
 	/** Brief one-line summary of the plan */
 	summary?: string;
 	/** When the plan was submitted */
@@ -40,6 +47,12 @@ export interface PlanViewerState {
 	agentType?: "opencode" | "claude";
 	/** If true, this pane won't be reused for new plans */
 	isLocked?: boolean;
+	/** Token for request/response matching (from .waiting file) */
+	token?: string;
+	/** User's feedback when rejecting */
+	feedback?: string;
+	/** When the decision was made */
+	respondedAt?: number;
 }
 
 /**

@@ -9,6 +9,7 @@ import { createExternalRouter } from "./external";
 import { createHotkeysRouter } from "./hotkeys";
 import { createMenuRouter } from "./menu";
 import { createNotificationsRouter } from "./notifications";
+import { createPlansRouter } from "./plans";
 import { createPortsRouter } from "./ports";
 import { createProjectsRouter } from "./projects";
 import { createRingtoneRouter } from "./ringtone";
@@ -32,6 +33,7 @@ export const createAppRouter = (getWindow: () => BrowserWindow | null) => {
 		terminal: createTerminalRouter(),
 		changes: createChangesRouter(),
 		notifications: createNotificationsRouter(),
+		plans: createPlansRouter(),
 		ports: createPortsRouter(),
 		menu: createMenuRouter(),
 		hotkeys: createHotkeysRouter(getWindow),

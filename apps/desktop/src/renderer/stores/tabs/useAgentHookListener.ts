@@ -29,10 +29,12 @@ export function useAgentHookListener() {
 				const {
 					content,
 					planId,
+					planPath,
 					originPaneId,
 					summary,
 					agentType,
 					workspaceId,
+					token,
 				} = event.data;
 
 				// Find the workspace to add the plan pane to
@@ -47,10 +49,42 @@ export function useAgentHookListener() {
 				state.addPlanViewerPane(targetWorkspaceId, {
 					content,
 					planId,
+					planPath,
 					originPaneId,
 					summary,
 					agentType,
+					token,
 				});
+				return;
+			}
+
+			// Handle plan response events (clear token so DecisionBar disappears)
+			if (event.type === NOTIFICATION_EVENTS.PLAN_RESPONSE) {
+				const { planId, decision, feedback } = event.data;
+
+				// Find and update the plan viewer pane with matching planId
+				const panes = state.panes;
+				for (const [paneId, pane] of Object.entries(panes)) {
+					if (pane.planViewer?.planId === planId) {
+						useTabsStore.setState({
+							panes: {
+								...panes,
+								[paneId]: {
+									...pane,
+									needsAttention: false,
+									planViewer: {
+										...pane.planViewer,
+										token: undefined, // Clear token so DecisionBar disappears
+										status: decision === "approved" ? "approved" : "rejected",
+										feedback,
+										respondedAt: Date.now(),
+									},
+								},
+							},
+						});
+						break;
+					}
+				}
 				return;
 			}
 

@@ -16,10 +16,18 @@ export interface AgentCompleteEvent extends NotificationIds {
 export interface PlanSubmittedEvent {
 	content: string;
 	planId: string;
+	planPath: string;
 	originPaneId: string;
 	summary?: string;
 	agentType: "opencode" | "claude";
 	workspaceId?: string;
+	token?: string;
+}
+
+export interface PlanResponseEvent {
+	planId: string;
+	decision: "approved" | "rejected";
+	feedback?: string;
 }
 
 export const notificationsEmitter = new EventEmitter();
@@ -57,8 +65,15 @@ app.get("/hook/complete", (req, res) => {
 
 // Plan submission hook
 app.post("/hook/plan", async (req, res) => {
-	const { planId, planPath, summary, originPaneId, agentType, workspaceId } =
-		req.body;
+	const {
+		planId,
+		planPath,
+		summary,
+		originPaneId,
+		agentType,
+		workspaceId,
+		token,
+	} = req.body;
 
 	if (!planPath || !planId) {
 		res.status(400).json({ error: "Missing planPath or planId" });
@@ -77,10 +92,12 @@ app.post("/hook/plan", async (req, res) => {
 	const event: PlanSubmittedEvent = {
 		content: result.content,
 		planId,
+		planPath,
 		originPaneId: originPaneId || "",
 		summary,
 		agentType: agentType === "claude" ? "claude" : "opencode",
 		workspaceId,
+		token,
 	};
 
 	notificationsEmitter.emit(NOTIFICATION_EVENTS.PLAN_SUBMITTED, event);

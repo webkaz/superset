@@ -6,7 +6,7 @@ import type {
 	FileViewerState,
 	PlanViewerState,
 } from "shared/tabs-types";
-import type { Pane, PaneType, Tab } from "./types";
+import type { AddPlanViewerPaneOptions, Pane, PaneType, Tab } from "./types";
 
 /**
  * Generates a unique ID with the given prefix
@@ -396,22 +396,16 @@ export const updateHistoryStack = (
 };
 
 /**
- * Options for creating a plan-viewer pane
+ * Re-export for backward compatibility
  */
-export interface CreatePlanViewerPaneOptions {
-	content: string;
-	planId: string;
-	originPaneId: string;
-	summary?: string;
-	agentType?: "opencode" | "claude";
-}
+export type CreatePlanViewerPaneOptions = AddPlanViewerPaneOptions;
 
 /**
  * Creates a new plan-viewer pane with the given properties
  */
 export const createPlanViewerPane = (
 	tabId: string,
-	options: CreatePlanViewerPaneOptions,
+	options: AddPlanViewerPaneOptions,
 ): Pane => {
 	const id = generateId("pane");
 
@@ -423,11 +417,13 @@ export const createPlanViewerPane = (
 	const planViewer: PlanViewerState = {
 		content: options.content,
 		planId: options.planId,
+		planPath: options.planPath,
 		originPaneId: options.originPaneId,
 		status: "pending",
 		summary: options.summary,
 		submittedAt: Date.now(),
 		agentType: options.agentType,
+		token: options.token,
 	};
 
 	return {

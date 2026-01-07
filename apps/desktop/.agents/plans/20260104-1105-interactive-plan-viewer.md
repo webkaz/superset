@@ -100,13 +100,29 @@ This plan implements **Phase 1**. The architecture is designed to enable future 
 
 ## Progress
 
-- [ ] (pending) Milestone 1: Add `plan-viewer` pane type to shared types
-- [ ] (pending) Milestone 2: Create PlanViewerPane component
-- [ ] (pending) Milestone 3: Extend Claude Code wrapper to hook `ExitPlanMode`
-- [ ] (pending) Milestone 4: Create OpenCode plugin with `submit_plan` tool
-- [ ] (pending) Milestone 5: Add main process plan handler (validate, read, emit)
-- [ ] (pending) Milestone 6: Handle plan event in renderer, add store action
-- [ ] (pending) Validation: End-to-end test with both Claude Code and OpenCode
+### Phase 1: View Plans (COMPLETED)
+
+- [x] Milestone 1: Add `plan-viewer` pane type to shared types
+- [x] Milestone 2: Create PlanViewerPane component
+- [x] Milestone 3: Extend Claude Code wrapper to hook `ExitPlanMode`
+- [x] Milestone 4: Create OpenCode plugin with `submit_plan` tool
+- [x] Milestone 5: Add main process plan handler (validate, read, emit)
+- [x] Milestone 6: Handle plan event in renderer, add store action
+- [x] Validation: End-to-end test with Claude Code
+
+### Phase 2: Approve / Request Changes (IN PROGRESS)
+
+- [x] Milestone 2.1: Extend PlanViewerState with status fields (token, planPath, feedback, respondedAt)
+- [x] Milestone 2.2: Create DecisionBar component with approve/reject UI
+- [x] Milestone 2.3: Create tRPC plans router (submitResponse, checkWaiting)
+- [x] Milestone 2.4: Update Claude Code hook for response file polling with token validation
+- [x] Milestone 2.5: Integrate DecisionBar with PlanViewerPane
+- [x] Milestone 2.6: Add PLAN_RESPONSE event handling in notifications router
+- [ ] (pending) Full end-to-end testing with Claude Code
+
+### Phase 3: Text Annotations (FUTURE)
+
+- [ ] (pending) See detailed plan below
 
 ## Surprises & Discoveries
 
@@ -3066,6 +3082,126 @@ Agent hooks timeout after 30 minutes. If UI takes longer to render/respond, agen
 User might have multiple plan review panes open. Ensure each pane tracks its own `planId` and doesn't mix responses.
 
 **Test case:** Open 3 plans → approve middle one → verify correct plan gets response.
+
+---
+
+## Critical Discovery: Hook Timeout Issue (2026-01-05)
+
+### Problem Identified
+
+During Phase 2 testing, the approve/reject flow wasn't working. Investigation revealed:
+
+1. **Hook process was being killed** after ~50-60 seconds of polling
+2. **No signal was logged** (SIGTERM/SIGINT traps didn't fire)
+3. Claude Code was silently terminating the hook
+
+Debug log showed:
+```
+[2026-01-05 15:27:00] Hook started, PID=61493
+[2026-01-05 15:27:00] Starting poll loop...
+[2026-01-05 15:27:10] Still polling, ELAPSED=10
+[2026-01-05 15:27:20] Still polling, ELAPSED=20
+...
+[2026-01-05 15:27:50] Still polling, ELAPSED=50
+(hook killed silently - no more logs)
+```
+
+### Root Cause: Missing Timeout Configuration
+
+Analysis of Plannotator's implementation revealed the fix. Their `hooks.json`:
+
+```json
+{
+  "hooks": {
+    "PermissionRequest": [{
+      "matcher": "ExitPlanMode",
+      "hooks": [{
+        "type": "command",
+        "command": "plannotator",
+        "timeout": 1800  // ← KEY: 30 minutes timeout
+      }]
+    }]
+  }
+}
+```
+
+**Claude Code hooks have a default timeout** (likely 60 seconds). Plannotator explicitly sets `"timeout": 1800` to allow 30 minutes for user review.
+
+### Solution
+
+Update `getClaudeSettingsContent()` in `agent-wrappers.ts` to include the timeout:
+
+```typescript
+const settings = {
+  hooks: {
+    Stop: [{ hooks: [{ type: "command", command: notifyPath }] }],
+    PermissionRequest: [
+      {
+        matcher: "ExitPlanMode",
+        hooks: [{
+          type: "command",
+          command: planHookPath,
+          timeout: 1800  // ← ADD THIS
+        }],
+      },
+      { matcher: "*", hooks: [{ type: "command", command: notifyPath }] },
+    ],
+  },
+};
+```
+
+### Additional Plannotator Insights
+
+**1. Architecture Comparison**
+
+| Aspect | Plannotator | Superset |
+|--------|-------------|----------|
+| **Server** | Ephemeral Bun HTTP server on random port | Persistent notification server on fixed port |
+| **UI** | Opens browser tab | Plan appears in existing pane |
+| **Decision channel** | HTTP POST to ephemeral server | File-based polling |
+| **Timeout** | 1800s configured in hooks.json | **Must add same** |
+
+**2. Why Plannotator's Approach Works**
+
+Plannotator's ephemeral server keeps the hook process alive via `await decisionPromise` (blocking until HTTP endpoint called). Our file-polling approach is simpler but requires the explicit timeout configuration.
+
+**3. Output Format**
+
+Plannotator uses a nested output format:
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PermissionRequest",
+    "decision": { "behavior": "allow" }
+  }
+}
+```
+
+Our simpler format `{"behavior":"allow"}` appears to work based on Claude Code's hook implementation, but we should verify.
+
+### Implementation Fix
+
+**File:** `apps/desktop/src/main/lib/agent-setup/agent-wrappers.ts`
+
+```typescript
+// In getClaudeSettingsContent():
+PermissionRequest: [
+  {
+    matcher: "ExitPlanMode",
+    hooks: [{
+      type: "command",
+      command: planHookPath,
+      timeout: 1800  // 30 minutes
+    }],
+  },
+  // ...
+]
+```
+
+After making this change:
+1. Restart dev server (regenerates hook settings)
+2. Clean up old plan files
+3. Re-test approve/reject flow
 
 ---
 
