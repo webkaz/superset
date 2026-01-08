@@ -448,12 +448,6 @@ export const Terminal = ({
 				}
 			}
 
-			// Apply rehydration sequences to restore other terminal modes
-			// (app cursor mode, bracketed paste, mouse tracking, etc.)
-			if (result.snapshot?.rehydrateSequences) {
-				xterm.write(result.snapshot.rehydrateSequences);
-			}
-
 			// Resize xterm to match snapshot dimensions before applying content.
 			// The snapshot's cursor positioning assumes specific cols/rows.
 			const snapshotCols = result.snapshot?.cols;
@@ -530,12 +524,9 @@ export const Terminal = ({
 				return; // Skip normal snapshot flow
 			}
 
-			// xterm.write() is asynchronous - escape sequences may not be fully
-			// processed when the terminal first renders, causing garbled display.
-			// Force a re-render after write completes to ensure correct display.
-			// (Symptom: restored terminals show corrupted text until resized)
-			// Use fitAddon.fit() and (when using WebGL) clear the glyph atlas to force a full repaint.
-			xterm.write(initialAnsi, () => {
+			const rehydrateSequences = result.snapshot?.rehydrateSequences ?? "";
+
+			const finalizeRestore = () => {
 				const redraw = () => {
 					requestAnimationFrame(() => {
 						try {
@@ -583,11 +574,36 @@ export const Terminal = ({
 					redraw();
 				});
 
-				// Enable streaming AFTER xterm has processed the snapshot.
+				// Enable streaming AFTER xterm has processed the restoration writes.
 				// This prevents live PTY output from interleaving with snapshot replay.
 				isStreamReadyRef.current = true;
 				flushPendingEvents();
-			});
+			};
+
+			const writeSnapshot = () => {
+				// xterm's WriteBuffer skips empty string chunks and never calls the callback.
+				// If there's no snapshot content, enable streaming immediately.
+				if (!initialAnsi) {
+					finalizeRestore();
+					return;
+				}
+
+				// xterm.write() is asynchronous - escape sequences may not be fully
+				// processed when the terminal first renders, causing garbled display.
+				// Force a re-render after write completes to ensure correct display.
+				// (Symptom: restored terminals show corrupted text until resized)
+				// Use fitAddon.fit() and (when using WebGL) clear the glyph atlas to force a full repaint.
+				xterm.write(initialAnsi, finalizeRestore);
+			};
+
+			// Apply rehydration sequences to restore other terminal modes
+			// (app cursor mode, bracketed paste, mouse tracking, etc.) before replaying snapshot.
+			if (rehydrateSequences) {
+				xterm.write(rehydrateSequences, writeSnapshot);
+			} else {
+				writeSnapshot();
+			}
+
 			// Use snapshot.cwd if available, otherwise parse from content
 			if (result.snapshot?.cwd) {
 				updateCwdRef.current(result.snapshot.cwd);
