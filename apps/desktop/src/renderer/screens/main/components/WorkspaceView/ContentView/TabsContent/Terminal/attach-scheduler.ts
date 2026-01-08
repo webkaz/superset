@@ -3,6 +3,8 @@ type AttachTask = {
 	priority: number;
 	enqueuedAt: number;
 	canceled: boolean;
+	/** Whether this task has released its inFlight slot (idempotent completion) */
+	released: boolean;
 	run: (done: () => void) => void;
 };
 
@@ -78,9 +80,16 @@ function pump(): void {
 		}
 
 		task.run(() => {
+			// Idempotent completion: only release inFlight slot once
+			// This prevents double-decrement when cancel() was called while task was running
+			const shouldRelease = !task.released;
+			if (shouldRelease) {
+				task.released = true;
+			}
+
 			if (DEBUG_SCHEDULER) {
 				console.log(
-					`[AttachScheduler] Task done: ${task.paneId}, inFlight=${inFlight - 1}`,
+					`[AttachScheduler] Task done: ${task.paneId}, inFlight=${shouldRelease ? inFlight - 1 : inFlight}, alreadyReleased=${!shouldRelease}`,
 				);
 			}
 
@@ -106,7 +115,10 @@ function pump(): void {
 				}
 			}
 
-			inFlight = Math.max(0, inFlight - 1);
+			// Only decrement inFlight if we're the one releasing
+			if (shouldRelease) {
+				inFlight = Math.max(0, inFlight - 1);
+			}
 			pump();
 		});
 	}
@@ -148,6 +160,7 @@ export function scheduleTerminalAttach({
 		priority,
 		enqueuedAt: Date.now(),
 		canceled: false,
+		released: false,
 		run,
 	};
 
@@ -167,7 +180,9 @@ export function scheduleTerminalAttach({
 		// If this task is currently running, we need to decrement inFlight now
 		// because the tRPC callbacks for unmounted components may not fire,
 		// meaning done() would never be called and inFlight would stay stuck.
-		if (runningByPaneId.get(paneId) === task) {
+		// Use idempotent release to prevent double-decrement if done() also fires.
+		if (runningByPaneId.get(paneId) === task && !task.released) {
+			task.released = true;
 			runningByPaneId.delete(paneId);
 			inFlight = Math.max(0, inFlight - 1);
 			if (DEBUG_SCHEDULER) {

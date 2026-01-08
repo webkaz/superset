@@ -691,6 +691,7 @@ export class TerminalHostClient extends EventEmitter {
 				if (newlineIndex === -1) return;
 
 				const line = buffer.slice(0, newlineIndex);
+				const remainder = buffer.slice(newlineIndex + 1);
 				this.streamSocket?.off("data", onData);
 				clearTimeout(timeoutId);
 
@@ -700,6 +701,16 @@ export class TerminalHostClient extends EventEmitter {
 						reject(new Error("Unexpected stream response"));
 						return;
 					}
+
+					// Feed any remainder data to the streamParser so events
+					// arriving in the same TCP read as the response aren't lost
+					if (remainder) {
+						const messages = this.streamParser.parse(remainder);
+						for (const msg of messages) {
+							this.handleMessage(msg);
+						}
+					}
+
 					if (message.ok) {
 						resolve(message.payload as T);
 					} else {
