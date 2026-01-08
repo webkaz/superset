@@ -190,6 +190,18 @@ export function scheduleTerminalAttach({
 					`[AttachScheduler] Cancel running task: ${paneId}, inFlight=${inFlight}`,
 				);
 			}
+			// Re-queue any task that was waiting for this one to complete
+			// (mirrors done() behavior for the "done never fires" scenario)
+			const waiting = waitingByPaneId.get(paneId);
+			if (waiting && !waiting.canceled) {
+				waitingByPaneId.delete(paneId);
+				queue.push(waiting);
+				if (DEBUG_SCHEDULER) {
+					console.log(
+						`[AttachScheduler] Re-queued waiting task after cancel: ${paneId}`,
+					);
+				}
+			}
 			// Pump to start any waiting tasks now that we have capacity
 			pump();
 		} else if (DEBUG_SCHEDULER) {

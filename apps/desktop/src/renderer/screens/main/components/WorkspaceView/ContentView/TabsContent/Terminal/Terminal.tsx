@@ -1227,10 +1227,6 @@ export const Terminal = ({
 			renderDisposableRef.current?.dispose();
 			renderDisposableRef.current = null;
 
-			// Clean up cold restore scrollback to prevent memory leak
-			// (scrollback can be MBs per pane, accumulates if not cleaned)
-			coldRestoreState.delete(paneId);
-
 			// Delay xterm.dispose() to let internal timeouts complete.
 			// xterm.open() schedules a setTimeout for Viewport.syncScrollArea.
 			// If we dispose synchronously, that timeout fires after _renderer is
