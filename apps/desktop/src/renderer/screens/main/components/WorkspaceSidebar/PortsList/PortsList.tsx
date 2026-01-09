@@ -27,33 +27,26 @@ export function PortsList() {
 
 	const utils = trpc.useUtils();
 
-	// Fetch static ports for all workspaces
 	const { data: allStaticPortsData } = trpc.ports.getAllStatic.useQuery();
 
-	// Subscribe to static ports file changes for active workspace
-	// (triggers refetch of all static ports when file changes)
 	trpc.ports.subscribeStatic.useSubscription(
 		{ workspaceId: activeWorkspace?.id ?? "" },
 		{
 			enabled: !!activeWorkspace?.id,
 			onData: () => {
-				// Invalidate to refetch all static ports
 				utils.ports.getAllStatic.invalidate();
 			},
 		},
 	);
 
-	// Fetch initial dynamic ports
 	const { data: initialPorts } = trpc.ports.getAll.useQuery();
 
-	// Set initial dynamic ports when they load
 	useEffect(() => {
 		if (initialPorts) {
 			setPorts(initialPorts);
 		}
 	}, [initialPorts, setPorts]);
 
-	// Subscribe to dynamic port changes
 	trpc.ports.subscribe.useSubscription(undefined, {
 		onData: (event) => {
 			if (event.type === "add") {
@@ -64,7 +57,6 @@ export function PortsList() {
 		},
 	});
 
-	// Create a map of workspace IDs to names
 	const workspaceNames = useMemo(() => {
 		if (!allWorkspaces) return {};
 		return allWorkspaces.reduce(
@@ -76,10 +68,9 @@ export function PortsList() {
 		);
 	}, [allWorkspaces]);
 
-	// Track which errors we've shown toasts for
+	// Prevent showing duplicate error toasts on re-renders
 	const shownErrorsRef = useRef<Set<string>>(new Set());
 
-	// Show toast errors for any static port loading errors
 	useEffect(() => {
 		const errors = allStaticPortsData?.errors ?? [];
 		for (const { workspaceId, error } of errors) {
@@ -95,16 +86,13 @@ export function PortsList() {
 		}
 	}, [allStaticPortsData?.errors, workspaceNames]);
 
-	// Get all workspace IDs that have either static or dynamic ports
 	const allWorkspaceIds = useMemo(() => {
 		const ids = new Set<string>();
 
-		// Add workspaces with static ports
 		for (const port of allStaticPortsData?.ports ?? []) {
 			ids.add(port.workspaceId);
 		}
 
-		// Add workspaces with dynamic ports
 		for (const port of ports) {
 			ids.add(port.workspaceId);
 		}
@@ -112,17 +100,14 @@ export function PortsList() {
 		return Array.from(ids);
 	}, [allStaticPortsData?.ports, ports]);
 
-	// Merge static + dynamic ports for ALL workspaces, grouped
 	const workspacePortGroups = useMemo(() => {
 		const allStaticPorts = allStaticPortsData?.ports ?? [];
 
 		const groups = allWorkspaceIds.map((workspaceId) => {
-			// Get static ports for this workspace
 			const staticPortsForWorkspace = allStaticPorts.filter(
 				(p) => p.workspaceId === workspaceId,
 			);
 
-			// Merge with dynamic ports
 			const merged = mergePorts({
 				staticPorts: staticPortsForWorkspace,
 				dynamicPorts: ports,
@@ -137,7 +122,6 @@ export function PortsList() {
 			};
 		});
 
-		// Sort: current workspace first, then alphabetically
 		groups.sort((a, b) => {
 			if (a.isCurrentWorkspace && !b.isCurrentWorkspace) return -1;
 			if (!a.isCurrentWorkspace && b.isCurrentWorkspace) return 1;
@@ -153,13 +137,11 @@ export function PortsList() {
 		activeWorkspace?.id,
 	]);
 
-	// Calculate total port count for display
 	const totalPortCount = workspacePortGroups.reduce(
 		(sum, g) => sum + g.ports.length,
 		0,
 	);
 
-	// Don't render if there are no ports (static or dynamic)
 	if (totalPortCount === 0) {
 		return null;
 	}

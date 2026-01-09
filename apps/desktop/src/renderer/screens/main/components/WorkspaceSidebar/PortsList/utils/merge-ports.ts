@@ -18,20 +18,14 @@ export function mergePorts({
 	dynamicPorts: DetectedPort[];
 	workspaceId: string;
 }): MergedPort[] {
-	// Filter dynamic ports for current workspace
 	const workspaceDynamicPorts = dynamicPorts.filter(
 		(p) => p.workspaceId === workspaceId,
 	);
 
-	// Create a map of port number -> dynamic port info
 	const dynamicByPort = new Map(workspaceDynamicPorts.map((p) => [p.port, p]));
-
-	// Create a set of port numbers that have static config
 	const staticPortNumbers = new Set(staticPorts.map((p) => p.port));
-
 	const merged: MergedPort[] = [];
 
-	// 1. Process all static ports (they always appear)
 	for (const staticPort of staticPorts) {
 		const dynamic = dynamicByPort.get(staticPort.port);
 		merged.push({
@@ -47,7 +41,6 @@ export function mergePorts({
 		});
 	}
 
-	// 2. Add dynamic-only ports (not in static config)
 	for (const dynamic of workspaceDynamicPorts) {
 		if (!staticPortNumbers.has(dynamic.port)) {
 			merged.push({
@@ -64,6 +57,5 @@ export function mergePorts({
 		}
 	}
 
-	// Sort by port number
 	return merged.sort((a, b) => a.port - b.port);
 }

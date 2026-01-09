@@ -93,7 +93,6 @@ export const createPortsRouter = () => {
 						return { ports: null, error: result.error };
 					}
 
-					// Add workspaceId to each port
 					const portsWithWorkspace: StaticPort[] =
 						result.ports?.map((p) => ({
 							...p,
@@ -158,7 +157,6 @@ export const createPortsRouter = () => {
 						return () => {};
 					}
 
-					// Start watching the file
 					staticPortsWatcher.watch(input.workspaceId, workspacePath);
 
 					const onChange = (changedWorkspaceId: string) => {
