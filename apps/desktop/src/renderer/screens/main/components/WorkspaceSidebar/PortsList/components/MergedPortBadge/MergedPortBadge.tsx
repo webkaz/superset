@@ -19,9 +19,20 @@ export function MergedPortBadge({
 	const setActiveMutation = trpc.workspaces.setActive.useMutation();
 	const utils = trpc.useUtils();
 
-	const displayText = port.label
-		? `${port.label} - ${port.port}`
-		: port.port.toString();
+	const portNumberColor = port.isActive
+		? "text-muted-foreground"
+		: "text-muted-foreground/80";
+
+	const displayContent = port.label ? (
+		<>
+			{port.label}{" "}
+			<span className={`font-mono font-normal ${portNumberColor}`}>
+				{port.port}
+			</span>
+		</>
+	) : (
+		<span className={`font-mono ${portNumberColor}`}>{port.port}</span>
+	);
 
 	const canJumpToTerminal = port.isActive && port.paneId;
 
@@ -52,7 +63,7 @@ export function MergedPortBadge({
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<div
-					className={`group relative inline-flex items-center gap-1 rounded-md text-xs transition-colors mb-2 ${badgeClasses}`}
+					className={`group relative inline-flex items-center gap-1 rounded-md text-xs transition-colors mb-1 ${badgeClasses}`}
 				>
 					<button
 						type="button"
@@ -60,13 +71,13 @@ export function MergedPortBadge({
 						disabled={!canJumpToTerminal}
 						className={`font-medium px-2 py-1 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-md ${!canJumpToTerminal ? "cursor-default" : ""}`}
 					>
-						{displayText}
+						{displayContent}
 					</button>
 					<button
 						type="button"
 						onClick={handleOpenInBrowser}
 						aria-label={`Open ${port.label || `port ${port.port}`} in browser`}
-						className="opacity-0 group-hover:opacity-100 pr-1.5 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none"
+						className="opacity-0 group-hover:opacity-100 pr-1 transition-opacity hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none"
 					>
 						<LuExternalLink className="size-3" strokeWidth={STROKE_WIDTH} />
 					</button>

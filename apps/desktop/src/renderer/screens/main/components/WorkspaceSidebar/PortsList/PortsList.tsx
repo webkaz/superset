@@ -1,12 +1,16 @@
+import { COMPANY } from "@superset/shared/constants";
 import { toast } from "@superset/ui/sonner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@superset/ui/tooltip";
 import { useEffect, useMemo, useRef } from "react";
-import { LuChevronRight, LuRadioTower } from "react-icons/lu";
+import { LuChevronRight, LuCircleHelp, LuRadioTower } from "react-icons/lu";
 import { trpc } from "renderer/lib/trpc";
 import { usePortsStore } from "renderer/stores";
 import type { MergedPort } from "shared/types";
 import { STROKE_WIDTH } from "../constants";
 import { MergedPortBadge } from "./components/MergedPortBadge";
 import { mergePorts } from "./utils";
+
+const PORTS_DOCS_URL = `https://${COMPANY.DOMAIN}/ports`;
 
 interface MergedWorkspaceGroup {
 	workspaceId: string;
@@ -146,13 +150,18 @@ export function PortsList() {
 		return null;
 	}
 
+	const handleOpenPortsDocs = (e: React.MouseEvent) => {
+		e.stopPropagation();
+		window.open(PORTS_DOCS_URL, "_blank");
+	};
+
 	return (
 		<div className="mt-3 pt-3 border-t border-border/40">
 			<button
 				type="button"
 				aria-expanded={!isCollapsed}
 				onClick={toggleCollapsed}
-				className="text-[11px] uppercase tracking-wider text-muted-foreground/70 px-3 pb-2 font-medium flex items-center gap-1.5 w-full hover:text-muted-foreground focus-visible:text-muted-foreground focus-visible:outline-none transition-colors"
+				className="group text-[11px] uppercase tracking-wider text-muted-foreground/70 px-3 pb-2 font-medium flex items-center gap-1.5 w-full hover:text-muted-foreground focus-visible:text-muted-foreground focus-visible:outline-none transition-colors"
 			>
 				<LuChevronRight
 					className={`size-3 transition-transform ${isCollapsed ? "" : "rotate-90"}`}
@@ -163,9 +172,29 @@ export function PortsList() {
 				<span className="text-[10px] ml-auto font-normal">
 					{totalPortCount}
 				</span>
+				<Tooltip delayDuration={300}>
+					<TooltipTrigger asChild>
+						<span
+							role="button"
+							tabIndex={0}
+							onClick={handleOpenPortsDocs}
+							onKeyDown={(e) => {
+								if (e.key === "Enter" || e.key === " ") {
+									handleOpenPortsDocs(e as unknown as React.MouseEvent);
+								}
+							}}
+							className="p-0.5 rounded hover:bg-muted/50 opacity-0 group-hover:opacity-100 transition-opacity"
+						>
+							<LuCircleHelp className="size-3" strokeWidth={STROKE_WIDTH} />
+						</span>
+					</TooltipTrigger>
+					<TooltipContent side="top" sideOffset={4}>
+						<p className="text-xs">Learn about static port configuration</p>
+					</TooltipContent>
+				</Tooltip>
 			</button>
 			{!isCollapsed && (
-				<div className="space-y-2">
+				<div className="space-y-2 max-h-72 overflow-y-auto">
 					{workspacePortGroups.map((group) => (
 						<MergedWorkspacePortGroup key={group.workspaceId} group={group} />
 					))}
