@@ -28,7 +28,7 @@ import { useAuth } from "renderer/contexts/AuthProvider";
 import { useCollections } from "renderer/contexts/CollectionsProvider";
 import { trpc } from "renderer/lib/trpc";
 import { useOpenSettings } from "renderer/stores/app-state";
-import { useHotkeyText } from "renderer/stores/hotkeys";
+import { useHotkeyText } from "renderer/stores/hotkeys/store";
 
 interface OrganizationDropdownProps {
 	isCollapsed?: boolean;
@@ -41,6 +41,7 @@ export function OrganizationDropdown({
 	const collections = useCollections();
 	const setActiveOrg = trpc.auth.setActiveOrganization.useMutation();
 	const signOut = trpc.auth.signOut.useMutation();
+	const openUrl = trpc.external.openUrl.useMutation();
 	const openSettings = useOpenSettings();
 	const hotkeysShortcut = useHotkeyText("SHOW_HOTKEYS");
 
@@ -186,25 +187,21 @@ export function OrganizationDropdown({
 					</DropdownMenuSubTrigger>
 					<DropdownMenuSubContent>
 						<DropdownMenuItem
-							onSelect={() =>
-								window.open("https://discord.gg/superset", "_blank")
-							}
+							onSelect={() => openUrl.mutate("https://discord.gg/superset")}
 							className="gap-2"
 						>
 							<FaDiscord className="h-4 w-4" />
 							<span>Discord</span>
 						</DropdownMenuItem>
 						<DropdownMenuItem
-							onSelect={() =>
-								window.open("mailto:founders@superset.sh", "_blank")
-							}
+							onSelect={() => openUrl.mutate("mailto:founders@superset.sh")}
 							className="gap-2"
 						>
 							<HiOutlineEnvelope className="h-4 w-4" />
 							<span>Email founders</span>
 						</DropdownMenuItem>
 						<DropdownMenuItem
-							onSelect={() => window.open("https://x.com/supersetsh", "_blank")}
+							onSelect={() => openUrl.mutate("https://x.com/supersetsh")}
 							className="gap-2"
 						>
 							<FaXTwitter className="h-4 w-4" />
