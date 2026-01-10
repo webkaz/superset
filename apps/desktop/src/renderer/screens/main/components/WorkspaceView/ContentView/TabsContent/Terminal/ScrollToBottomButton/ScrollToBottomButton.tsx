@@ -60,12 +60,14 @@ export function ScrollToBottomButton({
 					? "translate-y-0 opacity-100"
 					: "pointer-events-none translate-y-2 opacity-0",
 			)}
+			aria-hidden={!isVisible}
 		>
 			<Tooltip delayDuration={300}>
 				<TooltipTrigger asChild>
 					<button
 						type="button"
 						onClick={handleClick}
+						tabIndex={isVisible ? 0 : -1}
 						className="flex size-8 items-center justify-center rounded-full border border-border/50 bg-background/80 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-muted/90 hover:text-foreground"
 					>
 						<HiArrowDown className="size-4" />
