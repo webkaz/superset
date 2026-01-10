@@ -42,7 +42,9 @@ This plan refactors the code so backend selection and backend-specific capabilit
 
 ## Definitions (Plain Language)
 
-Pane ID (`paneId`): a stable identifier for a terminal pane in the renderer’s tab layout. It is used as the session key across restarts and reattaches.
+Pane ID (`paneId`): a stable identifier for a terminal pane in the renderer’s tab layout. Today it is also used as the backend session key, but the refactor should avoid assuming `paneId === backendSessionId` forever (cloud terminals will likely need a distinct backend identity).
+
+Backend session ID (`backendSessionId`): an identifier assigned by the backend for the running session. For local backends, this may continue to equal `paneId`, but future backends (cloud/multi-device) should be free to assign their own IDs and map multiple panes/clients to the same backend session.
 
 Terminal session: the running PTY process and its terminal emulator state.
 
@@ -76,7 +78,7 @@ This refactor is intentionally conservative to avoid regressions:
 
 1. Naming: should the abstraction be named `TerminalRuntime`, `TerminalService`, or keep `getActiveTerminalManager()` and add a new `getTerminalRuntime()` alongside it? (This plan assumes `getTerminalRuntime()` returning a `TerminalRuntime` facade exported from `apps/desktop/src/main/lib/terminal/index.ts`.)
 2. Should we keep the existing tRPC endpoint names (`terminal.listDaemonSessions`, `terminal.killAllDaemonSessions`, etc.) for backwards compatibility in the renderer? (This plan assumes “yes” to minimize churn and risk.)
-3. For future cloud terminals, do we want to preserve the current “`paneId` == `sessionId`” mapping, or introduce a distinct backend session identifier (for example `backendSessionId`) and map panes to backend sessions? (This plan assumes we do not change identity mapping in this PR to reduce regression risk, but we keep the runtime contract compatible with adding a distinct backend session identifier later.)
+3. For future cloud terminals, do we want to introduce a distinct backend session identifier (`backendSessionId`) now (even if it equals `paneId` today), or defer it to a follow-up after the daemon vs in-process leakage is fixed? (This plan assumes we defer a wire-contract identity migration to keep this refactor lower-risk, but we explicitly call out a follow-up milestone to introduce `backendSessionId` cleanly if/when cloud is near-term.)
 
 
 ## Plan of Work
@@ -94,7 +96,6 @@ This section is illustrative. It shows the intended file layout, key types, and 
     apps/desktop/src/main/lib/terminal/
       index.ts                         # exports getTerminalRuntime()
       runtime.ts                        # TerminalRuntime + selection (process-scoped)
-      runtime-types.ts                  # TerminalSessionBackend / DaemonManagement / capabilities
       manager.ts                        # in-process backend (existing)
       daemon-manager.ts                 # daemon backend (existing)
       types.ts                          # existing shared terminal types (CreateSessionParams, SessionResult, events)
@@ -126,28 +127,41 @@ The goal is to stop encoding backend choice as a “mode string” that callers 
       remoteManagement: boolean;
     }
 
-    export interface TerminalSessionBackend {
+    export interface TerminalSessionOperations {
       // Core lifecycle (normalized to async, even if an implementation is sync today)
       createOrAttach(params: CreateSessionParams): Promise<SessionResult>;
       write(params: { paneId: string; data: string }): Promise<void>;
       resize(params: { paneId: string; cols: number; rows: number; seq?: number }): Promise<void>;
       signal(params: { paneId: string; signal?: string }): Promise<void>;
       kill(params: { paneId: string }): Promise<void>;
-      detach(params: { paneId: string }): Promise<void>;
+      detach(params: { paneId: string; viewportY?: number }): Promise<void>;
       clearScrollback(params: { paneId: string }): Promise<void>;
+      ackColdRestore(params: { paneId: string }): Promise<void>;
+    }
 
-      // Workspace helpers used outside the terminal router
+    export interface TerminalWorkspaceOperations {
       killByWorkspaceId(workspaceId: string): Promise<{ killed: number; failed: number }>;
       getSessionCountByWorkspaceId(workspaceId: string): Promise<number>;
       refreshPromptsForWorkspace(workspaceId: string): Promise<void>;
+    }
 
-      // Cold restore semantics
-      ackColdRestore(paneId: string): Promise<void>;
+    export type TerminalPaneEvent =
+      | { type: "data"; data: string }
+      | { type: "exit"; exitCode: number; signal?: number }
+      | { type: "disconnect"; reason: string }
+      | { type: "error"; error: string; code?: string };
 
-      // EventEmitter contract (must match today)
-      on(event: string, listener: (...args: unknown[]) => void): this;
-      off(event: string, listener: (...args: unknown[]) => void): this;
-      once(event: string, listener: (...args: unknown[]) => void): this;
+    export interface TerminalEventSource {
+      // Backend-agnostic event subscription API (do not expose Node EventEmitter semantics)
+      subscribePane(params: {
+        paneId: string;
+        onEvent: (event: TerminalPaneEvent) => void;
+      }): () => void;
+
+      // Low-volume lifecycle events used for correctness when panes are unmounted.
+      subscribeTerminalExit(params: {
+        onExit: (event: { paneId: string; exitCode: number; signal?: number }) => void;
+      }): () => void;
     }
 
     export interface DaemonManagement {
@@ -157,7 +171,9 @@ The goal is to stop encoding backend choice as a “mode string” that callers 
     }
 
     export interface TerminalRuntime {
-      sessions: TerminalSessionBackend;
+      sessions: TerminalSessionOperations;
+      workspaces: TerminalWorkspaceOperations;
+      events: TerminalEventSource;
       daemon: DaemonManagement | null;
       capabilities: TerminalCapabilities;
     }
@@ -169,21 +185,65 @@ The goal is to stop encoding backend choice as a “mode string” that callers 
     export function getTerminalRuntime(): TerminalRuntime {
       if (cachedRuntime) return cachedRuntime;
 
-      const sessions = getActiveTerminalManager(); // existing selection logic (cached by “requires restart”)
-      const daemon = sessions instanceof DaemonTerminalManager ? sessions : null;
+      const backend = getActiveTerminalManager(); // existing selection logic (cached by “requires restart”)
+      const daemonManager = backend instanceof DaemonTerminalManager ? backend : null;
 
       cachedRuntime = {
-        sessions,
-        daemon: daemon
+        sessions: {
+          createOrAttach: (params) => backend.createOrAttach(params),
+          write: async (params) => backend.write(params),
+          resize: async (params) => backend.resize(params),
+          signal: async (params) => backend.signal(params),
+          kill: (params) => backend.kill(params),
+          detach: async (params) => backend.detach(params),
+          clearScrollback: async (params) => backend.clearScrollback(params),
+          ackColdRestore: async (params) => backend.ackColdRestore(params.paneId),
+        },
+        workspaces: {
+          killByWorkspaceId: (workspaceId) => backend.killByWorkspaceId(workspaceId),
+          getSessionCountByWorkspaceId: (workspaceId) =>
+            backend.getSessionCountByWorkspaceId(workspaceId),
+          refreshPromptsForWorkspace: async (workspaceId) =>
+            backend.refreshPromptsForWorkspace(workspaceId),
+        },
+        events: {
+          subscribePane: ({ paneId, onEvent }) => {
+            const onData = (data: string) => onEvent({ type: "data", data });
+            const onExit = (exitCode: number, signal?: number) =>
+              onEvent({ type: "exit", exitCode, signal });
+            const onDisconnect = (reason: string) =>
+              onEvent({ type: "disconnect", reason });
+            const onError = (payload: { error: string; code?: string }) =>
+              onEvent({ type: "error", error: payload.error, code: payload.code });
+
+            backend.on(`data:${paneId}`, onData);
+            backend.on(`exit:${paneId}`, onExit);
+            backend.on(`disconnect:${paneId}`, onDisconnect);
+            backend.on(`error:${paneId}`, onError);
+
+            return () => {
+              backend.off(`data:${paneId}`, onData);
+              backend.off(`exit:${paneId}`, onExit);
+              backend.off(`disconnect:${paneId}`, onDisconnect);
+              backend.off(`error:${paneId}`, onError);
+            };
+          },
+          subscribeTerminalExit: ({ onExit }) => {
+            backend.on("terminalExit", onExit);
+            return () => backend.off("terminalExit", onExit);
+          },
+        },
+        daemon: daemonManager
           ? {
-              listSessions: () => daemon.listDaemonSessions(),
-              forceKillAll: () => daemon.forceKillAll(),
-              resetHistoryPersistence: () => daemon.resetHistoryPersistence(),
+              listSessions: () => daemonManager.listDaemonSessions(),
+              forceKillAll: () => daemonManager.forceKillAll(),
+              resetHistoryPersistence: () =>
+                daemonManager.resetHistoryPersistence(),
             }
           : null,
         capabilities: {
-          persistent: daemon !== null,
-          coldRestore: daemon !== null,
+          persistent: daemonManager !== null,
+          coldRestore: daemonManager !== null,
           remoteManagement: false,
         },
       };
@@ -193,8 +253,9 @@ The goal is to stop encoding backend choice as a “mode string” that callers 
 
 Notes:
 
-1. The `sessions instanceof DaemonTerminalManager` check is allowed here because this module is the only backend-selection boundary; the tRPC router and UI must not need it.
+1. The `backend instanceof DaemonTerminalManager` check is allowed here because this module is the only backend-selection boundary; the tRPC router and UI must not need it.
 2. If daemon capability exists but a call fails (daemon unreachable, request fails), we propagate the error. We do not convert failures into “daemon disabled” states.
+3. `runtime.daemon !== null` indicates the persistent backend is configured/active, not that it is healthy “right now”. If the daemon process crashes or the socket drops mid-session, operations may throw and the backend emits existing per-pane `disconnect:*` / `error:*` events. The runtime does not dynamically flip `daemon` to `null`.
 
 
 ### tRPC Router Shape (No Daemon Type Checks)
@@ -212,12 +273,13 @@ The terminal router captures the runtime once when the router is created (not pe
         stream: publicProcedure
           .input(z.string())
           .subscription(({ input: paneId }) =>
-            observable((emit) => {
-              const onExit = (exitCode: number, signal?: number) => {
-                // IMPORTANT: do not complete on exit
-                emit.next({ type: "exit", exitCode, signal });
-              };
-              ...
+            observable<TerminalPaneEvent>((emit) => {
+              // IMPORTANT: do not complete on exit.
+              // Exit is a state transition and must not terminate the subscription.
+              return runtime.events.subscribePane({
+                paneId,
+                onEvent: (event) => emit.next(event),
+              });
             }),
           ),
 
@@ -244,14 +306,17 @@ The renderer still needs to implement UI behaviors (cold restore overlay, retry 
       restoreStrategy: "altScreenRedraw" | "snapshotReplay";
       isColdRestore: boolean;
       previousCwd: string | null;
+      /** Used to restore scroll position on reattach (see upstream PR #698) */
+      viewportY?: number;
     }
 
     // `CreateOrAttachOutput` here refers to the renderer-visible shape returned by
     // `trpc.terminal.createOrAttach` (which includes `snapshot` and/or `scrollback`).
     export function buildTerminalInitPlan(result: CreateOrAttachOutput): TerminalInitPlan {
       const initialAnsi = result.snapshot?.snapshotAnsi ?? result.scrollback ?? "";
+      const viewportY = result.viewportY;
       ...
-      return { ... };
+      return { ..., viewportY };
     }
 
 `apply-init-plan.ts` (ordering guarantees):
@@ -264,6 +329,7 @@ The renderer still needs to implement UI behaviors (cold restore overlay, retry 
     }): Promise<void> {
       // apply rehydrate → apply snapshot → then onReady
       // if altScreenRedraw: enter alt screen, then trigger redraw, then onReady
+      // if plan.viewportY is set, restore scroll position after initial content is applied
     }
 
 `useTerminalStream.ts` (buffering until ready):
@@ -288,6 +354,7 @@ The critical invariants remain unchanged:
 1. The stream subscription does not complete on exit.
 2. Events arriving “too early” are buffered until restore is finished.
 3. Cold restore remains read-only until Start Shell is clicked, and stale queued events are dropped before starting a new session (prevents “exit clears UI” regressions).
+4. Reattaching restores the previous scroll position (`viewportY`) when available (upstream main behavior; see PR #698).
 
 
 ### Diagrams (Call Flow)
@@ -308,7 +375,7 @@ Main call flow (today and after refactor; the difference is where switching happ
       v
     Terminal Host Daemon  --->  PTY subprocess per session
 
-Renderer composition after Milestone 6:
+Renderer composition after Milestone 6c:
 
     Terminal.tsx
       ├─ useTerminalConnection()      (tRPC mutations)
@@ -326,16 +393,19 @@ Scope:
 1. Identify the backend API surface currently used by callers outside `apps/desktop/src/main/lib/terminal/` by searching for usages of:
    - `getActiveTerminalManager()`
    - events `data:${paneId}`, `exit:${paneId}`, `disconnect:${paneId}`, `error:${paneId}`, and `terminalExit`
-2. Write an explicit “TerminalSessionBackend contract” type in `apps/desktop/src/main/lib/terminal/` (likely in `apps/desktop/src/main/lib/terminal/types.ts` or a new `runtime.ts`). This contract should include:
-   - The core operations used by the renderer (create/attach/write/resize/signal/kill/detach/clearScrollback).
-   - The workspace operations used by other routers (killByWorkspaceId, getSessionCountByWorkspaceId, refreshPromptsForWorkspace).
-   - The EventEmitter event names used by the tRPC stream and notifications bridge.
+2. Write an explicit “terminal backend contract” type in `apps/desktop/src/main/lib/terminal/` (likely in `apps/desktop/src/main/lib/terminal/types.ts` or `runtime.ts`). This contract should include:
+   - `TerminalSessionOperations` for per-pane session lifecycle (create/attach/write/resize/signal/kill/detach/clearScrollback, cold restore ack).
+   - `TerminalWorkspaceOperations` for workspace-scoped helpers used by other routers (killByWorkspaceId, getSessionCountByWorkspaceId, refreshPromptsForWorkspace).
+   - `TerminalEventSource` for event delivery using a backend-agnostic `subscribe...() => unsubscribe` API (no Node EventEmitter semantics in the contract).
+   - A shared event union type (for example `TerminalPaneEvent`) that matches the tRPC stream payload shapes (`data`, `exit`, `disconnect`, `error`).
 3. Record invariants in code comments near the contract:
    - `terminal.stream` must not complete on `exit`.
    - `exit` is a state transition, not an end-of-stream.
    - The output stream lifecycle is separate from session lifecycle: the stream completes only when the client unsubscribes (dispose), not when a session exits.
+   - Detach/reattach must preserve scroll restoration behavior where supported (currently: pass `viewportY` on detach and restore it on the next attach; see upstream PR #698).
    - All backend operations must be normalized to async (Promise-returning) at the contract boundary, even if an implementation currently has a sync method (example: `clearScrollback`).
-   - The terminal EventEmitter must be owned by the backend instance; the runtime facade must not introduce a shared/global EventEmitter or re-emit events in a way that can cause cross-talk or duplicate listeners.
+   - Event delivery must be expressed via `subscribe` APIs at the boundary. Backends may use Node EventEmitter internally today, but callers must not depend on EventEmitter semantics.
+   - The terminal event source must be owned by the backend instance; the runtime facade must not introduce a shared/global EventEmitter or re-emit events in a way that can cause cross-talk or duplicate listeners.
 
 Acceptance:
 
@@ -352,12 +422,17 @@ Approach:
 1. Create a small facade in `apps/desktop/src/main/lib/terminal/` (recommended: `apps/desktop/src/main/lib/terminal/runtime.ts`) that exports:
    - `getTerminalRuntime(): TerminalRuntime`
 2. `TerminalRuntime` should have three parts:
-   - `sessions: TerminalSessionBackend` (the active backend implementing the normalized async session contract)
+   - `sessions: TerminalSessionOperations` (per-pane session lifecycle operations; normalized to async)
+   - `workspaces: TerminalWorkspaceOperations` (workspace-scoped helpers; normalized to async)
+   - `events: TerminalEventSource` (backend-agnostic subscribe API for per-pane events and `terminalExit`)
    - `daemon: DaemonManagement | null` (nullable capability object; `null` when daemon management is not supported/active)
    - `capabilities: { persistent: boolean; coldRestore: boolean; remoteManagement: boolean }` (feature flags that do not encode implementation details and leave room for a future cloud backend)
 3. Do not use “no-op admin methods”. The absence of daemon capabilities must be represented structurally (`daemon: null`) so callers cannot confuse “unsupported” with “success”.
 4. Ensure the facade is process-scoped and constructed once. The tRPC router should capture the runtime once at router construction time (not per request) to avoid multiplying event listeners or daemon client connections.
 5. Export the runtime from `apps/desktop/src/main/lib/terminal/index.ts` as the only supported way to reach daemon-specific functionality.
+6. Clarify daemon mid-session failure semantics:
+   - `runtime.daemon !== null` reflects feature/mode availability, not daemon “health right now”.
+   - If the daemon disconnects, operations may throw and per-pane disconnect/error events are emitted; the runtime does not dynamically flip `daemon` to `null`.
 
 Acceptance:
 
@@ -374,13 +449,15 @@ Scope:
 1. Update `apps/desktop/src/lib/trpc/routers/terminal/terminal.ts` to use:
    - `const runtime = getTerminalRuntime()` (or equivalent)
    - Replace `instanceof DaemonTerminalManager` checks with checks on `runtime.daemon` capability presence.
-2. Preserve the existing endpoint names and response shapes so the renderer does not need behavioral changes:
+   - Use `runtime.events.subscribePane(...)` for the `terminal.stream` subscription implementation (no direct EventEmitter usage in the router).
+2. Update any other main-process call sites that depend on EventEmitter event names (for example `apps/desktop/src/main/windows/main.ts` listening for `terminalExit`) to use `runtime.events.subscribeTerminalExit(...)` so EventEmitter semantics do not leak beyond the backend boundary.
+3. Preserve the existing endpoint names and response shapes so the renderer does not need behavioral changes:
    - `listDaemonSessions` returns `{ daemonModeEnabled, sessions }`
    - `killAllDaemonSessions` returns `{ daemonModeEnabled, killedCount }`
    - `killDaemonSessionsForWorkspace` returns `{ daemonModeEnabled, killedCount }`
    - `clearTerminalHistory` returns `{ success: true }` but calls daemon history reset when the daemon capability is present
-3. Ensure the `stream` subscription continues to use `observable` and continues to not complete on `exit`.
-4. Error semantics must be explicit:
+4. Ensure the `stream` subscription continues to use `observable` and continues to not complete on `exit`.
+5. Error semantics must be explicit:
    - If daemon capability is absent, return `daemonModeEnabled: false` (UI will show “restart app after enabling persistence” messaging).
    - If daemon capability is present but the operation fails (daemon unreachable, request fails), surface the error (do not convert it into `daemonModeEnabled: false`).
 
@@ -415,11 +492,12 @@ Validation should be run both with terminal persistence disabled and enabled.
 Acceptance:
 
 1. The matrix items for non-daemon, daemon warm attach, and daemon cold restore all pass.
+2. Reattach scroll restoration passes (detach sends `viewportY`; attach restores it; see upstream PR #698).
 
 
-### Milestone 6: Reduce Branching in `Terminal.tsx` (Renderer Decomposition)
+### Milestone 6a: Build a Terminal Init Plan (Renderer)
 
-This milestone reduces complexity in the renderer terminal component without changing behavior. The goal is not to “rewrite the terminal UI”, but to isolate protocol/state-machine logic (snapshot vs scrollback selection, restore sequencing, stream buffering, and cold restore gating) into small units that can be tested. This work is optional from a feature perspective but strongly recommended to reduce regression risk as we add future backends (for example cloud terminals) and expand lifecycle handling (disconnect/retry, auth expiry, etc.).
+This milestone reduces complexity in the renderer terminal component without changing behavior. The goal is not to “rewrite the terminal UI”, but to isolate protocol/state-machine logic (snapshot vs scrollback selection, restore sequencing, cold restore gating, and scroll restoration) into small units that can be tested.
 
 Scope:
 
@@ -427,19 +505,67 @@ Scope:
    - Canonical initial content (`initialAnsi`) is `snapshot.snapshotAnsi ?? scrollback`.
    - Rehydrate sequences and mode flags are always present in the plan (with fallbacks where snapshot modes are missing).
    - The plan contains a single restore strategy decision, for example “alt-screen redraw” vs “snapshot replay”, based on the same conditions `Terminal.tsx` uses today.
-2. Add a “restore applier” helper that owns the strict ordering guarantees during restore:
+   - The plan carries `viewportY` (when provided) to preserve scroll restoration on reattach (upstream PR #698 behavior).
+2. Add a “restore applier” helper that owns strict ordering guarantees during restore:
    - Apply rehydrate sequences, then snapshot replay, then mark the stream as ready and flush queued events.
    - Preserve the existing “alt-screen reattach” behavior where we enter alt-screen first and trigger a redraw via resize/SIGWINCH sequence (to avoid white screens).
-3. Add a small “stream handler” helper (or hook) that owns buffering until ready:
-   - Queue incoming `terminal.stream` events until the terminal is ready, then flush.
+
+Acceptance:
+
+1. At least one unit test exists for the init adapter to lock in “snapshot vs scrollback” canonicalization, mode fallbacks, and `viewportY` plumbing.
+2. No Node.js imports are introduced in renderer code as part of this refactor.
+
+
+### Milestone 6b: Stream Subscription + Buffering Hook (Renderer)
+
+Scope:
+
+1. Add a small “stream handler” helper (or hook) that owns buffering until ready:
+   - Subscribe to `terminal.stream` and queue incoming events until the terminal is ready, then flush deterministically.
    - Keep the important invariant that the subscription does not complete on `exit` (exit is a state transition).
-4. Refactor `apps/desktop/src/renderer/screens/main/components/WorkspaceView/ContentView/TabsContent/Terminal/Terminal.tsx` to use these helpers, reducing conditional branches in the component and keeping the UI concerns (overlays, buttons, focus) separate from protocol logic.
+   - Keep the buffering mechanism bounded (by event count or bytes) and drop/compact safely if needed (prefer bounded queues over unbounded arrays).
+
+Acceptance:
+
+1. A focused unit test exists for “buffer until ready then flush in order”.
+2. The stream still does not complete on exit.
+
+
+### Milestone 6c: Integrate Helpers into `Terminal.tsx` (UI Wiring Only)
+
+Scope:
+
+1. Refactor `apps/desktop/src/renderer/screens/main/components/WorkspaceView/ContentView/TabsContent/Terminal/Terminal.tsx` to use the helpers from Milestones 6a/6b:
+   - Keep UI concerns (overlays, buttons, focus) in `Terminal.tsx`.
+   - Move protocol concerns (snapshot vs scrollback selection, restore sequencing, stream buffering) out of the component.
+2. Preserve scroll restoration behavior on reattach:
+   - Send `viewportY` during detach (when available).
+   - Restore it during the next attach at the appropriate time in the restore ordering (after initial content is applied).
+3. Clarify `useTerminalConnection` expectations:
+   - `useTerminalConnection()` remains the tRPC mutation wrapper and is not a target for significant refactors in this milestone, beyond adapting call sites to the new helpers.
 
 Acceptance:
 
 1. `Terminal.tsx` still behaves identically (cold restore overlay, Start Shell flow, retry connection flow, exit prompt flow), but the core initialization/stream logic is exercised via helper functions that can be unit tested.
-2. At least one unit test exists for the session init adapter to lock in “snapshot vs scrollback” canonicalization and mode fallback behavior.
-3. No Node.js imports are introduced in renderer code as part of this refactor.
+2. No Node.js imports are introduced in renderer code as part of this refactor.
+
+
+### Milestone 7 (Optional / Cloud-Readiness): Introduce `backendSessionId`
+
+This milestone is a forward-looking improvement that decouples renderer pane identity (`paneId`) from backend session identity (`backendSessionId`). It should be considered once the daemon vs in-process leakage is resolved and the core refactor is stable.
+
+Scope:
+
+1. Extend `createOrAttach` to return `backendSessionId` (for local backends it can equal `paneId`).
+2. Store the mapping `{ paneId -> backendSessionId }` in renderer state and use `backendSessionId` for subsequent lifecycle operations (write/resize/signal/kill/detach and stream subscription), while continuing to key UI state by `paneId`.
+3. Add lifecycle events needed for cloud-style backends (non-goal to implement now, but define the contract):
+   - connection lifecycle: `connectionStateChanged`, `authExpired`
+   - per-operation timeout/retry policy at the boundary (even if implemented as “none” initially)
+
+Acceptance:
+
+1. The contract no longer implies `paneId === backendSessionId`, but behavior remains identical for local backends.
+2. A future cloud backend can implement the same runtime contract without changing `Terminal.tsx` and the tRPC router again.
 
 
 ## Validation
@@ -474,7 +600,7 @@ Mitigation: Keep the EventEmitter contract unchanged (`data:${paneId}`, `exit:${
 
 Risk: Output loss during attach if the stream subscription attaches after early PTY output (race between `createOrAttach` and `terminal.stream` subscribe).
 
-Mitigation: Preserve the current renderer sequencing (subscription established while the component is mounted, initial state applied from snapshot/scrollback, and stream events queued until ready). During manual QA, include at least one “immediate output” command (example: `echo READY`) and confirm it is visible reliably. If a reproducible loss exists, add a small per-pane ring buffer (bounded bytes) at the backend boundary and flush it to the first subscriber as a targeted follow-up.
+Mitigation: Preserve the current renderer sequencing (subscription established while the component is mounted, initial state applied from snapshot/scrollback, and stream events queued until ready). During manual QA, include at least one “immediate output” command (example: `echo READY`) and confirm it is visible reliably. If a reproducible loss exists, add a small per-pane ring buffer (bounded bytes) at the backend boundary and flush it to the first subscriber (a “ready/attached handshake”).
 
 Risk: Admin capability handling masks real errors (a true daemon failure being reported as “disabled”).
 
@@ -483,6 +609,14 @@ Mitigation: Represent daemon management as a nullable capability object (`daemon
 Risk: A future cloud backend would require different identity mapping than `paneId == sessionId`.
 
 Mitigation: Do not change identity mapping in this refactor, but ensure the runtime contract does not assume Unix sockets or local process ownership. The future cloud backend should implement the same contract behind `TerminalRuntime`.
+
+Risk: Reattach scroll restoration regresses during refactor (missing `viewportY` plumbing or restoring at the wrong time).
+
+Mitigation: Treat `viewportY` as part of the stable contract (detach includes it; init plan carries it; restore applier applies it after initial content). Add explicit verification to the PR matrix and (if needed) a focused unit test around the init plan adapter carrying `viewportY`.
+
+Risk: A refactor accidentally calls `emit.complete()` on `exit` (observable completion is irreversible), reintroducing the cold-restore failure mode.
+
+Mitigation: Keep the “stream does not complete on exit” regression test as P0 coverage and treat any adapter/hook changes to stream handling as test-gated.
 
 
 ## Progress
@@ -517,13 +651,27 @@ Mitigation: Do not change identity mapping in this refactor, but ensure the runt
 - [ ] Manual verification with persistence enabled (warm attach)
 - [ ] Manual verification for cold restore “Start Shell” path
 
-### Milestone 6
+### Milestone 6a
 
-- [ ] Implement session init adapter (normalize snapshot vs scrollback, restore strategy)
-- [ ] Implement restore applier helper (rehydrate → snapshot → stream ready)
+- [ ] Implement init plan adapter (normalize snapshot vs scrollback, modes, `viewportY`)
+- [ ] Implement restore applier helper (rehydrate → snapshot → scroll restore → stream ready)
+- [ ] Add focused unit tests for init plan invariants
+
+### Milestone 6b
+
 - [ ] Implement stream handler helper/hook (buffer until ready, flush deterministically)
+- [ ] Add focused unit tests for buffering + no-complete-on-exit
+
+### Milestone 6c
+
 - [ ] Refactor `Terminal.tsx` to use helpers, preserving behavior
-- [ ] Add focused unit tests for adapter/helper invariants
+- [ ] Preserve detach/reattach scroll restoration (`viewportY`)
+
+### Milestone 7 (Optional)
+
+- [ ] Add `backendSessionId` to `createOrAttach` response (local backends: equals `paneId`)
+- [ ] Store `{ paneId -> backendSessionId }` mapping in renderer state; use backend ID for operations
+- [ ] Define/introduce lifecycle events needed for cloud backends (connection/auth)
 
 
 ## Surprises & Discoveries
