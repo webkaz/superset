@@ -14,6 +14,7 @@ Observable outcomes:
 1. With terminal persistence disabled, terminals behave as before (no persistence across app restarts), and Settings → Terminal “Manage sessions” shows that daemon management is unavailable.
 2. With terminal persistence enabled, terminals survive app restarts, cold restore works, and Settings → Terminal “Manage sessions” continues to list/kill sessions.
 3. The tRPC `terminal.*` router no longer needs `instanceof DaemonTerminalManager` checks; daemon awareness is centralized in the terminal runtime layer.
+4. The renderer terminal component remains correct but is easier to reason about because backend-agnostic “session initialization” and “stream event handling” logic is extracted into small, testable helpers rather than being interleaved with UI rendering.
 
 
 ## Context / Orientation (Repository Map)
@@ -183,6 +184,31 @@ Acceptance:
 1. The matrix items for non-daemon, daemon warm attach, and daemon cold restore all pass.
 
 
+### Milestone 6: Reduce Branching in `Terminal.tsx` (Renderer Decomposition)
+
+This milestone reduces complexity in the renderer terminal component without changing behavior. The goal is not to “rewrite the terminal UI”, but to isolate protocol/state-machine logic (snapshot vs scrollback selection, restore sequencing, stream buffering, and cold restore gating) into small units that can be tested. This work is optional from a feature perspective but strongly recommended to reduce regression risk as we add future backends (for example cloud terminals) and expand lifecycle handling (disconnect/retry, auth expiry, etc.).
+
+Scope:
+
+1. Add a small “session init adapter” that converts the tRPC `createOrAttach` result into a single normalized “initialization plan”:
+   - Canonical initial content (`initialAnsi`) is `snapshot.snapshotAnsi ?? scrollback`.
+   - Rehydrate sequences and mode flags are always present in the plan (with fallbacks where snapshot modes are missing).
+   - The plan contains a single restore strategy decision, for example “alt-screen redraw” vs “snapshot replay”, based on the same conditions `Terminal.tsx` uses today.
+2. Add a “restore applier” helper that owns the strict ordering guarantees during restore:
+   - Apply rehydrate sequences, then snapshot replay, then mark the stream as ready and flush queued events.
+   - Preserve the existing “alt-screen reattach” behavior where we enter alt-screen first and trigger a redraw via resize/SIGWINCH sequence (to avoid white screens).
+3. Add a small “stream handler” helper (or hook) that owns buffering until ready:
+   - Queue incoming `terminal.stream` events until the terminal is ready, then flush.
+   - Keep the important invariant that the subscription does not complete on `exit` (exit is a state transition).
+4. Refactor `apps/desktop/src/renderer/screens/main/components/WorkspaceView/ContentView/TabsContent/Terminal/Terminal.tsx` to use these helpers, reducing conditional branches in the component and keeping the UI concerns (overlays, buttons, focus) separate from protocol logic.
+
+Acceptance:
+
+1. `Terminal.tsx` still behaves identically (cold restore overlay, Start Shell flow, retry connection flow, exit prompt flow), but the core initialization/stream logic is exercised via helper functions that can be unit tested.
+2. At least one unit test exists for the session init adapter to lock in “snapshot vs scrollback” canonicalization and mode fallback behavior.
+3. No Node.js imports are introduced in renderer code as part of this refactor.
+
+
 ## Validation
 
 Run these commands from the repo root:
@@ -257,6 +283,14 @@ Mitigation: Do not change identity mapping in this refactor, but ensure the runt
 - [ ] Manual verification with persistence disabled
 - [ ] Manual verification with persistence enabled (warm attach)
 - [ ] Manual verification for cold restore “Start Shell” path
+
+### Milestone 6
+
+- [ ] Implement session init adapter (normalize snapshot vs scrollback, restore strategy)
+- [ ] Implement restore applier helper (rehydrate → snapshot → stream ready)
+- [ ] Implement stream handler helper/hook (buffer until ready, flush deterministically)
+- [ ] Refactor `Terminal.tsx` to use helpers, preserving behavior
+- [ ] Add focused unit tests for adapter/helper invariants
 
 
 ## Surprises & Discoveries
