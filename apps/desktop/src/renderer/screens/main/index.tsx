@@ -92,10 +92,22 @@ export function MainScreen() {
 		data: activeWorkspace,
 		isLoading: isWorkspaceLoading,
 		isError,
+		error,
 		failureCount,
 		refetch,
 	} = trpc.workspaces.getActive.useQuery(undefined, {
 		enabled: isSignedIn,
+		// Retry transient errors (not schema/database errors which won't self-heal)
+		retry: (count, err) => {
+			// Don't retry schema errors (e.g., missing columns)
+			const message = err?.message ?? "";
+			if (message.includes("no such column") || message.includes("no such table")) {
+				return false;
+			}
+			// Retry up to 3 times for other errors
+			return count < 3;
+		},
+		retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 10000),
 	});
 	const [isRetrying, setIsRetrying] = useState(false);
 	const { splitPaneAuto, splitPaneVertical, splitPaneHorizontal } =
@@ -318,6 +330,8 @@ export function MainScreen() {
 
 	if (isError) {
 		const hasRepeatedFailures = failureCount >= 5;
+		const errorMessage = error?.message ?? "";
+		const isSchemaError = errorMessage.includes("no such column") || errorMessage.includes("no such table");
 
 		const handleRetry = async () => {
 			setIsRetrying(true);
@@ -334,12 +348,17 @@ export function MainScreen() {
 							<p className="text-sm text-muted-foreground">
 								Failed to load workspace
 							</p>
-							{hasRepeatedFailures && (
+							{isSchemaError ? (
+								<p className="text-xs text-muted-foreground/70 max-w-xs">
+									Database needs to be updated. Please restart the app to apply
+									the latest changes.
+								</p>
+							) : hasRepeatedFailures ? (
 								<p className="text-xs text-muted-foreground/70 max-w-xs">
 									This may indicate a connection issue. Try restarting the app
 									if the problem persists.
 								</p>
-							)}
+							) : null}
 						</div>
 						<Button
 							variant="outline"

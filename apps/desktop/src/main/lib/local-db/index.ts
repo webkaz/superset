@@ -79,10 +79,25 @@ sqlite.pragma("foreign_keys = OFF");
 console.log(`[local-db] Database initialized at: ${DB_PATH}`);
 console.log(`[local-db] Running migrations from: ${migrationsFolder}`);
 
+// Verify migrations folder exists and has expected files
+if (!existsSync(migrationsFolder)) {
+	console.error(`[local-db] ERROR: Migrations folder does not exist: ${migrationsFolder}`);
+} else {
+	const metaPath = join(migrationsFolder, "meta/_journal.json");
+	if (!existsSync(metaPath)) {
+		console.error(`[local-db] ERROR: Migration journal not found at: ${metaPath}`);
+	}
+}
+
 export const localDb = drizzle(sqlite, { schema });
 
-migrate(localDb, { migrationsFolder });
-
-console.log("[local-db] Migrations complete");
+try {
+	migrate(localDb, { migrationsFolder });
+	console.log("[local-db] Migrations complete");
+} catch (error) {
+	console.error("[local-db] Migration failed:", error);
+	// Don't throw - allow app to continue so user can see the error
+	// The queries will fail with more specific errors if schema is wrong
+}
 
 export type LocalDb = typeof localDb;
