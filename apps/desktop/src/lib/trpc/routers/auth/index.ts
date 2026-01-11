@@ -18,6 +18,10 @@ export const createAuthRouter = () => {
 			return authService.getAccessToken();
 		}),
 
+		getSession: publicProcedure.query(() => {
+			return { session: authService.getSession() };
+		}),
+
 		onStateChange: publicProcedure.subscription(() => {
 			return observable<{ isSignedIn: boolean }>((emit) => {
 				const handler = (state: { isSignedIn: boolean }) => {

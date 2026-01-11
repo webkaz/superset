@@ -1,8 +1,8 @@
-import { describe, expect, it, beforeEach, afterEach, mock } from "bun:test";
-import { EventEmitter } from "events";
+import { describe, expect, it } from "bun:test";
+import { EventEmitter } from "node:events";
 
 // Mock the dependencies before importing the module
-const mockLocalDb = {
+const _mockLocalDb = {
 	select: () => ({
 		from: () => ({
 			where: () => ({

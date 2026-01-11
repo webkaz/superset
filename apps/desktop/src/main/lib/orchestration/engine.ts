@@ -1,6 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
-import { EventEmitter } from "events";
-import { z } from "zod";
+import { EventEmitter } from "node:events";
 import {
 	agentMemory,
 	executionLogs,
@@ -8,7 +6,9 @@ import {
 	planTasks,
 	projects,
 } from "@superset/local-db";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { localDb } from "main/lib/local-db";
+import { z } from "zod";
 import { taskExecutionManager } from "../task-execution";
 
 // Types
@@ -243,7 +243,11 @@ export async function sendOrchestrationMessage({
 						.where(eq(planTasks.id, params.taskId))
 						.run();
 
-					return { success: true, taskId: params.taskId, message: "Task stopped" };
+					return {
+						success: true,
+						taskId: params.taskId,
+						message: "Task stopped",
+					};
 				},
 			},
 
@@ -480,7 +484,8 @@ export async function sendOrchestrationMessage({
 				const toolCall = {
 					id: part.toolCallId,
 					name: part.toolName,
-					input: (part as { input?: Record<string, unknown> }).input ??
+					input:
+						(part as { input?: Record<string, unknown> }).input ??
 						({} as Record<string, unknown>),
 				};
 				collectedToolCalls.push(toolCall);

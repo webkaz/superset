@@ -1,14 +1,10 @@
-import { orchestrationMessages } from "@superset/local-db";
 import { observable } from "@trpc/server/observable";
-import { desc, eq } from "drizzle-orm";
-import { localDb } from "main/lib/local-db";
 import {
+	type ChatStreamEvent,
 	clearOrchestrationHistory,
 	getOrchestrationHistory,
 	orchestrationEvents,
 	sendOrchestrationMessage,
-	type ChatMessage,
-	type ChatStreamEvent,
 } from "main/lib/orchestration";
 import { z } from "zod";
 import { publicProcedure, router } from "../../..";

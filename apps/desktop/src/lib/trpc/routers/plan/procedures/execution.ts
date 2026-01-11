@@ -1,11 +1,11 @@
-import { planTasks, plans, projects } from "@superset/local-db";
+import { plans, planTasks, projects } from "@superset/local-db";
 import { observable } from "@trpc/server/observable";
 import { eq } from "drizzle-orm";
 import { localDb } from "main/lib/local-db";
 import {
-	taskExecutionManager,
 	type TaskExecutionOutput,
 	type TaskExecutionProgress,
+	taskExecutionManager,
 } from "main/lib/task-execution";
 import { taskTerminalBridge } from "main/lib/task-execution/terminal-bridge";
 import { z } from "zod";
@@ -381,6 +381,43 @@ export const createExecutionProcedures = () => {
 			.mutation(({ input }) => {
 				taskTerminalBridge.killSession(input.taskId);
 				return { success: true };
+			}),
+
+		/**
+		 * Find a running task by workspace ID
+		 * Used when opening a workspace to check if there's an active task terminal
+		 */
+		findByWorkspaceId: publicProcedure
+			.input(z.object({ workspaceId: z.string() }))
+			.query(({ input }) => {
+				// First check in-memory for running tasks
+				const runningTasks = taskExecutionManager.getAllProgress();
+				for (const progress of runningTasks) {
+					if (progress.workspaceId === input.workspaceId) {
+						return {
+							taskId: progress.taskId,
+							status: progress.status,
+							isTerminalAlive: taskTerminalBridge.isAlive(progress.taskId),
+						};
+					}
+				}
+
+				// Check database for completed tasks with this workspace
+				const task = localDb
+					.select()
+					.from(planTasks)
+					.where(eq(planTasks.workspaceId, input.workspaceId))
+					.get();
+
+				if (task) {
+					return {
+						taskId: task.id,
+						status: task.status,
+						isTerminalAlive: taskTerminalBridge.isAlive(task.id),
+					};
+				}
+
+				return null;
 			}),
 	});
 };

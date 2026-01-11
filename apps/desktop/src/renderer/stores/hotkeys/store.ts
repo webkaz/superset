@@ -235,6 +235,7 @@ export function useHotkeysByCategory(options?: {
 			Layout: [],
 			Terminal: [],
 			Window: [],
+			Plan: [],
 			Help: [],
 		};
 

@@ -281,7 +281,12 @@ export type SelectTask = typeof tasks.$inferSelect;
 // =============================================================================
 
 export type PlanStatus = "draft" | "running" | "paused" | "completed";
-export type PlanTaskStatus = "backlog" | "queued" | "running" | "completed" | "failed";
+export type PlanTaskStatus =
+	| "backlog"
+	| "queued"
+	| "running"
+	| "completed"
+	| "failed";
 export type ExecutionStatus =
 	| "pending"
 	| "initializing"
@@ -458,5 +463,7 @@ export const orchestrationMessages = sqliteTable(
 	],
 );
 
-export type InsertOrchestrationMessage = typeof orchestrationMessages.$inferInsert;
-export type SelectOrchestrationMessage = typeof orchestrationMessages.$inferSelect;
+export type InsertOrchestrationMessage =
+	typeof orchestrationMessages.$inferInsert;
+export type SelectOrchestrationMessage =
+	typeof orchestrationMessages.$inferSelect;

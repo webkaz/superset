@@ -7,6 +7,7 @@ import { createChangesRouter } from "./changes";
 import { createConfigRouter } from "./config";
 import { createExternalRouter } from "./external";
 import { createHotkeysRouter } from "./hotkeys";
+import { createLinearRouter } from "./linear";
 import { createMenuRouter } from "./menu";
 import { createNotificationsRouter } from "./notifications";
 import { createPlanRouter } from "./plan";
@@ -43,6 +44,7 @@ export const createAppRouter = (getWindow: () => BrowserWindow | null) => {
 		ringtone: createRingtoneRouter(),
 		tasks: createTasksRouter(),
 		plan: createPlanRouter(),
+		linear: createLinearRouter(),
 	});
 };
 

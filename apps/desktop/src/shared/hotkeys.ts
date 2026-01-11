@@ -12,6 +12,7 @@ export type HotkeyCategory =
 	| "Layout"
 	| "Terminal"
 	| "Window"
+	| "Plan"
 	| "Help";
 
 export interface HotkeyDefinition {
@@ -552,6 +553,33 @@ export const HOTKEYS = {
 		description: "Copy the workspace path to the clipboard",
 	}),
 
+	// Plan
+	PLAN_NEW_TASK: defineHotkey({
+		keys: "meta+n",
+		label: "New Task",
+		category: "Plan",
+		description: "Create a new task in the plan view",
+	}),
+	PLAN_IMPORT_LINEAR: defineHotkey({
+		keys: "meta+i",
+		label: "Import from Linear",
+		category: "Plan",
+		description: "Open the Linear import modal",
+	}),
+	PLAN_TOGGLE_CHAT: defineHotkey({
+		keys: "meta+shift+o",
+		label: "Toggle Orchestrator",
+		category: "Plan",
+		description: "Show or hide the orchestration chat panel",
+	}),
+	PLAN_CLOSE: defineHotkey({
+		keys: "escape",
+		label: "Close Plan View",
+		category: "Plan",
+		description: "Return to workspace view",
+		isHidden: true,
+	}),
+
 	// Help
 	SHOW_HOTKEYS: defineHotkey({
 		keys: "meta+slash",
@@ -574,6 +602,7 @@ export function getHotkeysByCategory(options?: {
 		Layout: [],
 		Terminal: [],
 		Window: [],
+		Plan: [],
 		Help: [],
 	};
 

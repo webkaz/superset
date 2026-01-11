@@ -14,11 +14,6 @@ import {
 import { Input } from "@superset/ui/input";
 import { Label } from "@superset/ui/label";
 import {
-	ResizableHandle,
-	ResizablePanel,
-	ResizablePanelGroup,
-} from "@superset/ui/resizable";
-import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -40,6 +35,7 @@ import {
 	LuCheck,
 	LuChevronRight,
 	LuCircle,
+	LuCircleX,
 	LuClock,
 	LuExternalLink,
 	LuGripVertical,
@@ -47,10 +43,10 @@ import {
 	LuMessageSquare,
 	LuPanelRightClose,
 	LuPanelRightOpen,
-	LuPause,
 	LuPlay,
 	LuPlus,
 	LuRefreshCw,
+	LuSearch,
 	LuSend,
 	LuSquare,
 	LuTerminal,
@@ -58,10 +54,12 @@ import {
 	LuUser,
 	LuWrench,
 	LuX,
-	LuCircleX,
 } from "react-icons/lu";
+import { SiLinear } from "react-icons/si";
 import { trpc } from "renderer/lib/trpc";
 import { useClosePlan } from "renderer/stores/app-state";
+import { useAppHotkey } from "renderer/stores/hotkeys";
+import { useTabsStore } from "renderer/stores/tabs/store";
 
 type PlanTaskStatus = "backlog" | "queued" | "running" | "completed" | "failed";
 type TaskPriority = "urgent" | "high" | "medium" | "low" | "none";
@@ -74,6 +72,8 @@ interface PlanTask {
 	status: PlanTaskStatus;
 	priority: TaskPriority | null;
 	columnOrder: number;
+	workspaceId: string | null;
+	worktreeId: string | null;
 	externalProvider: string | null;
 	externalId: string | null;
 	externalUrl: string | null;
@@ -97,6 +97,7 @@ const COLUMN_CONFIG: {
 export function PlanView() {
 	const closePlan = useClosePlan();
 	const [isCreateTaskOpen, setIsCreateTaskOpen] = useState(false);
+	const [isLinearImportOpen, setIsLinearImportOpen] = useState(false);
 	const [isChatOpen, setIsChatOpen] = useState(true);
 	const [selectedTask, setSelectedTask] = useState<PlanTask | null>(null);
 
@@ -156,8 +157,19 @@ export function PlanView() {
 		onSuccess: () => refetchTasks(),
 	});
 
+	const bulkCreateTasksMutation = trpc.plan.bulkCreateTasks.useMutation({
+		onSuccess: () => {
+			refetchTasks();
+			setIsLinearImportOpen(false);
+		},
+	});
+
 	const handleCreateTask = useCallback(
-		(data: { title: string; description?: string; priority?: TaskPriority }) => {
+		(data: {
+			title: string;
+			description?: string;
+			priority?: TaskPriority;
+		}) => {
 			if (!plan?.id) return;
 			createTaskMutation.mutate({
 				planId: plan.id,
@@ -204,6 +216,66 @@ export function PlanView() {
 		[retryTaskMutation],
 	);
 
+	const handleImportFromLinear = useCallback(
+		(
+			issues: Array<{
+				id: string;
+				identifier: string;
+				title: string;
+				description: string | null;
+				priority: number;
+				url: string;
+			}>,
+		) => {
+			if (!plan?.id) return;
+
+			const priorityMap: Record<number, TaskPriority> = {
+				1: "urgent",
+				2: "high",
+				3: "medium",
+				4: "low",
+				0: "none",
+			};
+
+			bulkCreateTasksMutation.mutate({
+				planId: plan.id,
+				tasks: issues.map((issue) => ({
+					title: `[${issue.identifier}] ${issue.title}`,
+					description: issue.description ?? undefined,
+					priority: priorityMap[issue.priority] ?? "medium",
+					externalProvider: "linear",
+					externalId: issue.id,
+					externalUrl: issue.url,
+				})),
+			});
+		},
+		[plan?.id, bulkCreateTasksMutation],
+	);
+
+	// Keyboard shortcuts
+	useAppHotkey(
+		"PLAN_NEW_TASK",
+		() => setIsCreateTaskOpen(true),
+		{ enabled: !!plan?.id },
+		[plan?.id],
+	);
+
+	useAppHotkey(
+		"PLAN_IMPORT_LINEAR",
+		() => setIsLinearImportOpen(true),
+		{ enabled: !!plan?.id },
+		[plan?.id],
+	);
+
+	useAppHotkey(
+		"PLAN_TOGGLE_CHAT",
+		() => setIsChatOpen((prev) => !prev),
+		undefined,
+		[],
+	);
+
+	useAppHotkey("PLAN_CLOSE", () => closePlan(), undefined, [closePlan]);
+
 	if (!activeWorkspace?.project) {
 		return (
 			<div className="flex flex-col h-full w-full bg-background items-center justify-center">
@@ -240,7 +312,16 @@ export function PlanView() {
 				<div className="flex items-center gap-1.5">
 					<Button
 						size="sm"
+						variant="outline"
 						className="gap-1.5 h-8"
+						onClick={() => setIsLinearImportOpen(true)}
+					>
+						<SiLinear className="size-3" />
+						Import
+					</Button>
+					<Button
+						size="sm"
+						className="gap-1.5 h-8 bg-red-500 hover:bg-red-600"
 						onClick={() => setIsCreateTaskOpen(true)}
 					>
 						<LuPlus className="size-3.5" />
@@ -312,6 +393,14 @@ export function PlanView() {
 				isLoading={createTaskMutation.isPending}
 			/>
 
+			{/* Linear Import Modal */}
+			<LinearImportModal
+				open={isLinearImportOpen}
+				onOpenChange={setIsLinearImportOpen}
+				onImport={handleImportFromLinear}
+				isLoading={bulkCreateTasksMutation.isPending}
+			/>
+
 			{/* Task Detail Panel */}
 			<TaskDetailPanel
 				task={selectedTask}
@@ -325,7 +414,11 @@ export function PlanView() {
 
 interface KanbanBoardProps {
 	tasks: PlanTask[];
-	onMoveTask: (taskId: string, status: PlanTaskStatus, columnOrder: number) => void;
+	onMoveTask: (
+		taskId: string,
+		status: PlanTaskStatus,
+		columnOrder: number,
+	) => void;
 	onDeleteTask: (taskId: string) => void;
 	onStartTask: (taskId: string) => void;
 	onRetryTask: (taskId: string) => void;
@@ -334,7 +427,16 @@ interface KanbanBoardProps {
 	selectedTaskId?: string;
 }
 
-function KanbanBoard({ tasks, onMoveTask, onDeleteTask, onStartTask, onStopTask, onRetryTask, onSelectTask, selectedTaskId }: KanbanBoardProps) {
+function KanbanBoard({
+	tasks,
+	onMoveTask,
+	onDeleteTask,
+	onStartTask,
+	onStopTask,
+	onRetryTask,
+	onSelectTask,
+	selectedTaskId,
+}: KanbanBoardProps) {
 	// Group tasks by status
 	const groupedTasks: Record<PlanTaskStatus, PlanTask[]> = {
 		backlog: [],
@@ -383,7 +485,11 @@ interface KanbanColumnProps {
 	title: string;
 	color: string;
 	tasks: PlanTask[];
-	onMoveTask: (taskId: string, status: PlanTaskStatus, columnOrder: number) => void;
+	onMoveTask: (
+		taskId: string,
+		status: PlanTaskStatus,
+		columnOrder: number,
+	) => void;
 	onDeleteTask: (taskId: string) => void;
 	onStartTask: (taskId: string) => void;
 	onStopTask: (taskId: string) => void;
@@ -465,7 +571,15 @@ interface TaskCardProps {
 	isSelected?: boolean;
 }
 
-function TaskCard({ task, onDelete, onStart, onStop, onRetry, onSelect, isSelected }: TaskCardProps) {
+function TaskCard({
+	task,
+	onDelete,
+	onStart,
+	onStop,
+	onRetry,
+	onSelect,
+	isSelected,
+}: TaskCardProps) {
 	const handleDragStart = (e: React.DragEvent) => {
 		e.dataTransfer.setData("text/plain", task.id);
 		e.dataTransfer.effectAllowed = "move";
@@ -554,7 +668,9 @@ function TaskCard({ task, onDelete, onStart, onStop, onRetry, onSelect, isSelect
 										<LuPlay className="size-2.5" />
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent side="top" className="text-xs">Start</TooltipContent>
+								<TooltipContent side="top" className="text-xs">
+									Start
+								</TooltipContent>
 							</Tooltip>
 						)}
 						{isFailed && (
@@ -572,7 +688,9 @@ function TaskCard({ task, onDelete, onStart, onStop, onRetry, onSelect, isSelect
 										<LuRefreshCw className="size-2.5" />
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent side="top" className="text-xs">Retry</TooltipContent>
+								<TooltipContent side="top" className="text-xs">
+									Retry
+								</TooltipContent>
 							</Tooltip>
 						)}
 						{canStop && (
@@ -590,7 +708,9 @@ function TaskCard({ task, onDelete, onStart, onStop, onRetry, onSelect, isSelect
 										<LuSquare className="size-2.5" />
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent side="top" className="text-xs">Stop</TooltipContent>
+								<TooltipContent side="top" className="text-xs">
+									Stop
+								</TooltipContent>
 							</Tooltip>
 						)}
 						<Tooltip>
@@ -607,7 +727,9 @@ function TaskCard({ task, onDelete, onStart, onStop, onRetry, onSelect, isSelect
 									<LuTrash2 className="size-2.5" />
 								</Button>
 							</TooltipTrigger>
-							<TooltipContent side="top" className="text-xs">Delete</TooltipContent>
+							<TooltipContent side="top" className="text-xs">
+								Delete
+							</TooltipContent>
 						</Tooltip>
 					</div>
 				</div>
@@ -720,6 +842,303 @@ function CreateTaskDialog({
 	);
 }
 
+// ============================================================================
+// Linear Import Modal - Import issues from Linear
+// ============================================================================
+
+interface LinearIssue {
+	id: string;
+	identifier: string;
+	title: string;
+	description: string | null;
+	priority: number;
+	state: { id: string; name: string; color: string } | null;
+	url: string;
+	createdAt: string;
+	updatedAt: string;
+}
+
+interface LinearImportModalProps {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onImport: (issues: LinearIssue[]) => void;
+	isLoading: boolean;
+}
+
+function LinearImportModal({
+	open,
+	onOpenChange,
+	onImport,
+	isLoading,
+}: LinearImportModalProps) {
+	const [selectedTeamId, setSelectedTeamId] = useState<string>("");
+	const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+	const [searchQuery, setSearchQuery] = useState("");
+	const [selectedIssues, setSelectedIssues] = useState<Set<string>>(new Set());
+
+	// Get user session to get organization ID
+	const { data: session } = trpc.auth.getSession.useQuery();
+	const organizationId = session?.session?.activeOrganizationId;
+
+	// Check if Linear is connected
+	const { data: linearConnection, isLoading: isLoadingConnection } =
+		trpc.linear.getConnection.useQuery(
+			{ organizationId: organizationId! },
+			{ enabled: !!organizationId },
+		);
+
+	// Get teams
+	const { data: teams, isLoading: isLoadingTeams } =
+		trpc.linear.getTeams.useQuery(
+			{ organizationId: organizationId! },
+			{ enabled: !!organizationId && !!linearConnection },
+		);
+
+	// Get projects for selected team
+	const { data: projects } = trpc.linear.getProjects.useQuery(
+		{ organizationId: organizationId!, teamId: selectedTeamId || undefined },
+		{ enabled: !!organizationId && !!linearConnection },
+	);
+
+	// Get issues with filters
+	const { data: issuesData, isLoading: isLoadingIssues } =
+		trpc.linear.getIssues.useQuery(
+			{
+				organizationId: organizationId!,
+				teamId: selectedTeamId || undefined,
+				projectId: selectedProjectId || undefined,
+				first: 50,
+			},
+			{ enabled: !!organizationId && !!linearConnection && !searchQuery },
+		);
+
+	// Search issues
+	const { data: searchData, isLoading: isSearching } =
+		trpc.linear.searchIssues.useQuery(
+			{ organizationId: organizationId!, query: searchQuery },
+			{
+				enabled:
+					!!organizationId && !!linearConnection && searchQuery.length > 0,
+			},
+		);
+
+	const issues = searchQuery
+		? (searchData?.issues ?? [])
+		: (issuesData?.issues ?? []);
+
+	const handleToggleIssue = (issueId: string) => {
+		setSelectedIssues((prev) => {
+			const next = new Set(prev);
+			if (next.has(issueId)) {
+				next.delete(issueId);
+			} else {
+				next.add(issueId);
+			}
+			return next;
+		});
+	};
+
+	const handleSelectAll = () => {
+		if (selectedIssues.size === issues.length) {
+			setSelectedIssues(new Set());
+		} else {
+			setSelectedIssues(new Set(issues.map((i) => i.id)));
+		}
+	};
+
+	const handleImport = () => {
+		const issuesToImport = issues.filter((i) => selectedIssues.has(i.id));
+		onImport(issuesToImport);
+	};
+
+	// Reset state when modal opens
+	useEffect(() => {
+		if (open) {
+			setSelectedIssues(new Set());
+			setSearchQuery("");
+		}
+	}, [open]);
+
+	const isConnected = !!linearConnection;
+	const hasIssues = issues.length > 0;
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+				<DialogHeader>
+					<DialogTitle className="flex items-center gap-2">
+						<SiLinear className="size-4" />
+						Import from Linear
+					</DialogTitle>
+					<DialogDescription>
+						{isConnected
+							? "Select issues to import as tasks"
+							: "Connect Linear to your organization to import issues"}
+					</DialogDescription>
+				</DialogHeader>
+
+				{!organizationId ? (
+					<div className="py-8 text-center text-muted-foreground">
+						<p>Sign in to import from Linear</p>
+					</div>
+				) : isLoadingConnection ? (
+					<div className="py-8 flex items-center justify-center">
+						<LuLoader className="size-6 animate-spin text-muted-foreground" />
+					</div>
+				) : !isConnected ? (
+					<div className="py-8 text-center space-y-2">
+						<SiLinear className="size-10 mx-auto text-muted-foreground" />
+						<p className="text-muted-foreground">Linear is not connected</p>
+						<p className="text-sm text-muted-foreground">
+							Connect Linear in your organization settings on app.superset.sh
+						</p>
+					</div>
+				) : (
+					<>
+						{/* Filters */}
+						<div className="flex items-center gap-2 flex-shrink-0">
+							<div className="flex-1">
+								<div className="relative">
+									<LuSearch className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+									<Input
+										value={searchQuery}
+										onChange={(e) => setSearchQuery(e.target.value)}
+										placeholder="Search issues..."
+										className="pl-8 h-8 text-sm"
+									/>
+								</div>
+							</div>
+							<Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
+								<SelectTrigger className="w-36 h-8 text-xs">
+									<SelectValue placeholder="All teams" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="">All teams</SelectItem>
+									{teams?.map((team) => (
+										<SelectItem key={team.id} value={team.id}>
+											{team.key} - {team.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<Select
+								value={selectedProjectId}
+								onValueChange={setSelectedProjectId}
+							>
+								<SelectTrigger className="w-36 h-8 text-xs">
+									<SelectValue placeholder="All projects" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="">All projects</SelectItem>
+									{projects?.map((project) => (
+										<SelectItem key={project.id} value={project.id}>
+											{project.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+
+						{/* Issues List */}
+						<div className="flex-1 min-h-0 overflow-y-auto border rounded-md">
+							{isLoadingIssues || isSearching ? (
+								<div className="py-8 flex items-center justify-center">
+									<LuLoader className="size-5 animate-spin text-muted-foreground" />
+								</div>
+							) : !hasIssues ? (
+								<div className="py-8 text-center text-muted-foreground text-sm">
+									{searchQuery
+										? "No issues found matching your search"
+										: "No issues found"}
+								</div>
+							) : (
+								<div className="divide-y divide-border">
+									{/* Select All Header */}
+									<div className="px-3 py-2 bg-muted/30 flex items-center gap-2 sticky top-0">
+										<input
+											type="checkbox"
+											checked={
+												selectedIssues.size === issues.length &&
+												issues.length > 0
+											}
+											onChange={handleSelectAll}
+											className="size-3.5 rounded border-border"
+										/>
+										<span className="text-xs text-muted-foreground">
+											{selectedIssues.size > 0
+												? `${selectedIssues.size} selected`
+												: `${issues.length} issues`}
+										</span>
+									</div>
+									{issues.map((issue) => (
+										<label
+											key={issue.id}
+											className="flex items-start gap-3 px-3 py-2.5 hover:bg-muted/30 cursor-pointer"
+										>
+											<input
+												type="checkbox"
+												checked={selectedIssues.has(issue.id)}
+												onChange={() => handleToggleIssue(issue.id)}
+												className="size-3.5 rounded border-border mt-0.5"
+											/>
+											<div className="flex-1 min-w-0">
+												<div className="flex items-center gap-2">
+													<span className="text-xs text-muted-foreground font-mono">
+														{issue.identifier}
+													</span>
+													{issue.state && (
+														<span
+															className="text-[10px] px-1.5 py-0.5 rounded"
+															style={{
+																backgroundColor: `${issue.state.color}20`,
+																color: issue.state.color,
+															}}
+														>
+															{issue.state.name}
+														</span>
+													)}
+												</div>
+												<p className="text-sm font-medium truncate">
+													{issue.title}
+												</p>
+												{issue.description && (
+													<p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
+														{issue.description}
+													</p>
+												)}
+											</div>
+										</label>
+									))}
+								</div>
+							)}
+						</div>
+					</>
+				)}
+
+				<DialogFooter>
+					<Button
+						type="button"
+						variant="outline"
+						onClick={() => onOpenChange(false)}
+					>
+						Cancel
+					</Button>
+					{isConnected && (
+						<Button
+							type="button"
+							disabled={selectedIssues.size === 0 || isLoading}
+							onClick={handleImport}
+						>
+							{isLoading && <LuLoader className="size-4 animate-spin mr-2" />}
+							Import {selectedIssues.size > 0 ? `(${selectedIssues.size})` : ""}
+						</Button>
+					)}
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
 interface ChatMessage {
 	id: string;
 	role: "user" | "assistant" | "system";
@@ -798,16 +1217,17 @@ function OrchestrationChat({
 							callId: string;
 							result: unknown;
 						};
-						setPendingToolCalls((prev) =>
-							prev.map((tc) =>
-								tc.id === resultData.callId
-									? { ...tc, result: resultData.result }
-									: tc,
-							) as Array<{
-								id: string;
-								name: string;
-								input: Record<string, unknown>;
-							}>,
+						setPendingToolCalls(
+							(prev) =>
+								prev.map((tc) =>
+									tc.id === resultData.callId
+										? { ...tc, result: resultData.result }
+										: tc,
+								) as Array<{
+									id: string;
+									name: string;
+									input: Record<string, unknown>;
+								}>,
 						);
 						// Refresh tasks when a tool completes
 						onTasksChanged?.();
@@ -868,7 +1288,7 @@ function OrchestrationChat({
 	// Auto-scroll to bottom
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-	}, [messages, streamingContent]);
+	}, []);
 
 	const isEmpty = messages.length === 0 && !isStreaming;
 
@@ -910,7 +1330,9 @@ function OrchestrationChat({
 									AI Orchestrator
 								</p>
 								<p className="text-[11px] text-muted-foreground leading-relaxed">
-									Create, modify, and run tasks<br />through conversation.
+									Create, modify, and run tasks
+									<br />
+									through conversation.
 								</p>
 							</div>
 						</div>
@@ -921,24 +1343,25 @@ function OrchestrationChat({
 							<ChatMessageBubble key={msg.id} message={msg} />
 						))}
 						{/* Streaming message */}
-						{isStreaming && (streamingContent || pendingToolCalls.length > 0) && (
-							<div className="flex gap-2">
-								<div className="flex-shrink-0 size-6 rounded-full bg-primary/10 flex items-center justify-center">
-									<LuBot className="size-3.5 text-primary" />
+						{isStreaming &&
+							(streamingContent || pendingToolCalls.length > 0) && (
+								<div className="flex gap-2">
+									<div className="flex-shrink-0 size-6 rounded-full bg-primary/10 flex items-center justify-center">
+										<LuBot className="size-3.5 text-primary" />
+									</div>
+									<div className="flex-1 min-w-0 space-y-2">
+										{streamingContent && (
+											<div className="text-xs text-foreground whitespace-pre-wrap">
+												{streamingContent}
+												<span className="inline-block w-1.5 h-3.5 bg-primary/60 animate-pulse ml-0.5" />
+											</div>
+										)}
+										{pendingToolCalls.map((tc) => (
+											<ToolCallBubble key={tc.id} toolCall={tc} />
+										))}
+									</div>
 								</div>
-								<div className="flex-1 min-w-0 space-y-2">
-									{streamingContent && (
-										<div className="text-xs text-foreground whitespace-pre-wrap">
-											{streamingContent}
-											<span className="inline-block w-1.5 h-3.5 bg-primary/60 animate-pulse ml-0.5" />
-										</div>
-									)}
-									{pendingToolCalls.map((tc) => (
-										<ToolCallBubble key={tc.id} toolCall={tc} />
-									))}
-								</div>
-							</div>
-						)}
+							)}
 						<div ref={messagesEndRef} />
 					</>
 				)}
@@ -1005,9 +1428,7 @@ function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
 					<div
 						className={cn(
 							"inline-block text-xs whitespace-pre-wrap rounded-lg px-2.5 py-1.5 max-w-full leading-relaxed",
-							isUser
-								? "bg-primary text-primary-foreground"
-								: "text-foreground",
+							isUser ? "bg-primary text-primary-foreground" : "text-foreground",
 						)}
 					>
 						{message.content}
@@ -1114,6 +1535,7 @@ function TaskDetailPanel({
 	onStopTask,
 }: TaskDetailPanelProps) {
 	const setActiveWorkspaceMutation = trpc.workspaces.setActive.useMutation();
+	const addTaskTerminalPane = useTabsStore((s) => s.addTaskTerminalPane);
 
 	// Get execution status
 	const { data: executionStatus } = trpc.plan.getStatus.useQuery(
@@ -1121,12 +1543,27 @@ function TaskDetailPanel({
 		{ enabled: !!task?.id, refetchInterval: 1000 },
 	);
 
+	// Get workspace ID from either execution status (in-memory) or task record (persisted)
+	const workspaceId = executionStatus?.workspaceId ?? task?.workspaceId;
+
 	const handleJumpToWorkspace = useCallback(() => {
-		if (executionStatus?.workspaceId) {
-			setActiveWorkspaceMutation.mutate({ id: executionStatus.workspaceId });
+		if (workspaceId && task) {
+			// First set the active workspace
+			setActiveWorkspaceMutation.mutate(
+				{ id: workspaceId },
+				{
+					onSuccess: () => {
+						// After workspace is active, add the task terminal pane
+						addTaskTerminalPane(workspaceId, {
+							taskId: task.id,
+							taskTitle: task.title,
+						});
+					},
+				},
+			);
 			onClose();
 		}
-	}, [executionStatus?.workspaceId, setActiveWorkspaceMutation, onClose]);
+	}, [workspaceId, task, setActiveWorkspaceMutation, addTaskTerminalPane, onClose]);
 
 	if (!task) return null;
 
@@ -1134,7 +1571,7 @@ function TaskDetailPanel({
 	const isQueued = task.status === "queued";
 	const canStart = task.status === "backlog" || task.status === "failed";
 	const canStop = isRunning || isQueued;
-	const hasWorkspace = !!executionStatus?.workspaceId;
+	const hasWorkspace = !!workspaceId;
 
 	const statusColors: Record<string, string> = {
 		backlog: "text-muted-foreground",
@@ -1155,10 +1592,7 @@ function TaskDetailPanel({
 	return (
 		<>
 			{/* Backdrop */}
-			<div
-				className="fixed inset-0 bg-black/20 z-40"
-				onClick={onClose}
-			/>
+			<div className="fixed inset-0 bg-black/20 z-40" onClick={onClose} />
 
 			{/* Panel */}
 			<div className="fixed right-0 top-0 bottom-0 w-[600px] bg-background border-l border-border z-50 flex flex-col shadow-xl">
@@ -1247,11 +1681,7 @@ function TaskDetailPanel({
 							</Button>
 						)}
 						{task.externalUrl && (
-							<Button
-								size="sm"
-								variant="ghost"
-								asChild
-							>
+							<Button size="sm" variant="ghost" asChild>
 								<a
 									href={task.externalUrl}
 									target="_blank"
@@ -1306,10 +1736,7 @@ function TaskDetailPanel({
 					</div>
 
 					<div className="flex-1 min-h-0">
-						<TaskTerminal
-							taskId={task.id}
-							isActive={isRunning || isQueued}
-						/>
+						<TaskTerminal taskId={task.id} isActive={isRunning || isQueued} />
 					</div>
 				</div>
 			</div>
@@ -1333,9 +1760,17 @@ function TaskTerminal({ taskId, isActive }: TaskTerminalProps) {
 	const [isAttached, setIsAttached] = useState(false);
 
 	// Attach to terminal and get scrollback
+	// Refetch every 500ms until session exists (handles race condition with session creation)
 	const { data: attachData } = trpc.plan.attachTerminal.useQuery(
 		{ taskId },
-		{ enabled: !!taskId },
+		{
+			enabled: !!taskId,
+			refetchInterval: (query) => {
+				// Stop refetching once we have the session
+				if (query.state.data?.exists) return false;
+				return 500; // Retry every 500ms until session exists
+			},
+		},
 	);
 
 	// Write to terminal mutation
@@ -1418,12 +1853,15 @@ function TaskTerminal({ taskId, isActive }: TaskTerminalProps) {
 			xtermRef.current = null;
 			fitAddonRef.current = null;
 		};
-	}, [taskId]);
+	}, [taskId, resizeTerminalMutation.mutate, writeToTerminalMutation.mutate]);
 
 	// Write scrollback when attachment data is received
 	useEffect(() => {
-		if (attachData?.exists && attachData.scrollback && xtermRef.current && !isAttached) {
-			xtermRef.current.write(attachData.scrollback);
+		if (attachData?.exists && xtermRef.current && !isAttached) {
+			// Write scrollback if there is any (may be empty string initially)
+			if (attachData.scrollback) {
+				xtermRef.current.write(attachData.scrollback);
+			}
 			setIsAttached(true);
 		}
 	}, [attachData, isAttached]);

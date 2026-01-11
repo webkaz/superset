@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-import os from "node:os";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import * as pty from "node-pty";
@@ -26,17 +25,21 @@ class TaskTerminalBridge extends EventEmitter {
 
 	/**
 	 * Create a new terminal session for a task
+	 * @param shellCommand - Optional shell command to run (spawns shell with -l -c "command")
 	 */
 	createSession({
 		taskId,
 		workingDir,
 		cols = DEFAULT_COLS,
 		rows = DEFAULT_ROWS,
+		shellCommand,
 	}: {
 		taskId: string;
 		workingDir: string;
 		cols?: number;
 		rows?: number;
+		/** Command to run via shell -l -c "command". If not provided, spawns interactive shell. */
+		shellCommand?: string;
 	}): string {
 		// Clean up existing session if any
 		if (this.sessions.has(taskId)) {
@@ -64,17 +67,36 @@ class TaskTerminalBridge extends EventEmitter {
 			LANG: process.env.LANG || "en_US.UTF-8",
 		} as Record<string, string>;
 
-		// Get shell
-		const shell = process.env.SHELL || "/bin/bash";
+		// Get user's shell
+		const shell = process.env.SHELL || "/bin/zsh";
 
 		// Spawn PTY
-		const ptyProcess = pty.spawn(shell, ["-l"], {
-			name: "xterm-256color",
-			cols,
-			rows,
-			cwd: workingDir,
-			env,
-		});
+		let ptyProcess: pty.IPty;
+		if (shellCommand) {
+			// Run command via login shell with -c
+			// -l: login shell (loads .zshrc/.bashrc for PATH, etc.)
+			// -c: run command and exit
+			// Note: Don't use -i (interactive) as it can cause hangs
+			console.log(
+				`[task-terminal] Spawning: ${shell} -l -c "${shellCommand}"`,
+			);
+			ptyProcess = pty.spawn(shell, ["-l", "-c", shellCommand], {
+				name: "xterm-256color",
+				cols,
+				rows,
+				cwd: workingDir,
+				env,
+			});
+		} else {
+			// Spawn interactive shell
+			ptyProcess = pty.spawn(shell, ["-l"], {
+				name: "xterm-256color",
+				cols,
+				rows,
+				cwd: workingDir,
+				env,
+			});
+		}
 
 		// Create session
 		const session: TaskTerminalSession = {
@@ -88,6 +110,7 @@ class TaskTerminalBridge extends EventEmitter {
 
 		// Handle PTY data
 		ptyProcess.onData((data: string) => {
+			console.log(`[task-terminal] Data from ${taskId}:`, data.substring(0, 100));
 			// Write to headless for scrollback
 			headless.write(data);
 
@@ -97,6 +120,7 @@ class TaskTerminalBridge extends EventEmitter {
 
 		// Handle PTY exit
 		ptyProcess.onExit(({ exitCode, signal }) => {
+			console.log(`[task-terminal] Exit for ${taskId}: code=${exitCode}, signal=${signal}`);
 			session.isAlive = false;
 			this.emit("exit", taskId, exitCode, signal);
 		});
@@ -163,10 +187,7 @@ class TaskTerminalBridge extends EventEmitter {
 		try {
 			session.pty.kill();
 		} catch (error) {
-			console.error(
-				`[task-terminal] Failed to kill PTY for ${taskId}:`,
-				error,
-			);
+			console.error(`[task-terminal] Failed to kill PTY for ${taskId}:`, error);
 		}
 
 		// Dispose headless terminal

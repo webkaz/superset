@@ -18,6 +18,7 @@ import {
 } from "renderer/stores/tabs/utils";
 import { FileViewerPane } from "./FileViewerPane";
 import { TabPane } from "./TabPane";
+import { TaskTerminal } from "../TaskTerminal";
 
 interface TabViewProps {
 	tab: Tab;
@@ -53,11 +54,18 @@ export function TabView({ tab }: TabViewProps) {
 
 	// Memoize the filtered panes to avoid creating new objects on every render
 	const tabPanes = useMemo(() => {
-		const result: Record<string, { tabId: string; type: string }> = {};
+		const result: Record<
+			string,
+			{ tabId: string; type: string; taskId?: string }
+		> = {};
 		for (const paneId of layoutPaneIds) {
 			const pane = allPanes[paneId];
 			if (pane?.tabId === tab.id) {
-				result[paneId] = { tabId: pane.tabId, type: pane.type };
+				result[paneId] = {
+					tabId: pane.tabId,
+					type: pane.type,
+					taskId: pane.taskId,
+				};
 			}
 		}
 		return result;
@@ -135,6 +143,17 @@ export function TabView({ tab }: TabViewProps) {
 						availableTabs={workspaceTabs}
 						onMoveToTab={(targetTabId) => movePaneToTab(paneId, targetTabId)}
 						onMoveToNewTab={() => movePaneToNewTab(paneId)}
+					/>
+				);
+			}
+
+			// Route task-terminal panes to TaskTerminal component
+			if (paneInfo.type === "task-terminal" && paneInfo.taskId) {
+				return (
+					<TaskTerminal
+						paneId={paneId}
+						taskId={paneInfo.taskId}
+						workspaceId={tab.workspaceId}
 					/>
 				);
 			}

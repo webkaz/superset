@@ -1,9 +1,9 @@
 import {
 	type InsertPlanTask,
 	type PlanTaskStatus,
-	type TaskPriority,
-	planTasks,
 	plans,
+	planTasks,
+	type TaskPriority,
 } from "@superset/local-db";
 import { eq } from "drizzle-orm";
 import { localDb } from "main/lib/local-db";
@@ -59,7 +59,10 @@ export const createPlanTaskProcedures = () => {
 					.all()
 					.filter((t) => t.status === status);
 
-				const maxOrder = Math.max(0, ...existingTasks.map((t) => t.columnOrder));
+				const maxOrder = Math.max(
+					0,
+					...existingTasks.map((t) => t.columnOrder),
+				);
 
 				const newTask: InsertPlanTask = {
 					planId: input.planId,
@@ -204,9 +207,7 @@ export const createPlanTaskProcedures = () => {
 					.from(planTasks)
 					.where(eq(planTasks.planId, existing.planId))
 					.all()
-					.filter(
-						(t) => t.status === input.status && t.id !== input.id,
-					)
+					.filter((t) => t.status === input.status && t.id !== input.id)
 					.sort((a, b) => a.columnOrder - b.columnOrder);
 
 				// Insert at the new position and shift others
@@ -301,7 +302,8 @@ export const createPlanTaskProcedures = () => {
 					.all()
 					.filter((t) => t.status === "backlog");
 
-				let nextOrder = Math.max(0, ...existingTasks.map((t) => t.columnOrder)) + 1;
+				let nextOrder =
+					Math.max(0, ...existingTasks.map((t) => t.columnOrder)) + 1;
 
 				const createdTasks = [];
 				for (const taskInput of input.tasks) {

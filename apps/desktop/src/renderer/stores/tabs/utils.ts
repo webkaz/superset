@@ -158,6 +158,32 @@ export const createFileViewerPane = (
 };
 
 /**
+ * Options for creating a task-terminal pane
+ */
+export interface CreateTaskTerminalPaneOptions {
+	taskId: string;
+	taskTitle?: string;
+}
+
+/**
+ * Creates a new task-terminal pane that attaches to a running task's PTY
+ */
+export const createTaskTerminalPane = (
+	tabId: string,
+	options: CreateTaskTerminalPaneOptions,
+): Pane => {
+	const id = generateId("pane");
+
+	return {
+		id,
+		tabId,
+		type: "task-terminal",
+		name: options.taskTitle ? `Task: ${options.taskTitle}` : "Task Terminal",
+		taskId: options.taskId,
+	};
+};
+
+/**
  * Generates a static tab name based on existing tabs
  * (e.g., "Terminal 1", "Terminal 2", finding the next available number)
  */

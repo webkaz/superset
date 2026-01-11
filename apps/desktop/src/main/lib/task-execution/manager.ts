@@ -1,5 +1,10 @@
 import { EventEmitter } from "node:events";
-import { executionLogs, type SelectPlanTask } from "@superset/local-db";
+import {
+	executionLogs,
+	planTasks,
+	type SelectPlanTask,
+} from "@superset/local-db";
+import { eq } from "drizzle-orm";
 import { localDb } from "main/lib/local-db";
 
 export type TaskExecutionStatus =
@@ -226,7 +231,8 @@ class TaskExecutionManager extends EventEmitter {
 			status,
 			message,
 			error,
-			startedAt: job.progress.startedAt ?? (status === "running" ? now : undefined),
+			startedAt:
+				job.progress.startedAt ?? (status === "running" ? now : undefined),
 			completedAt:
 				status === "completed" || status === "failed" || status === "cancelled"
 					? now
@@ -234,6 +240,57 @@ class TaskExecutionManager extends EventEmitter {
 		};
 
 		this.emit("progress", job.progress);
+
+		// Persist execution status to database
+		try {
+			const dbUpdate: Record<string, unknown> = {
+				executionStatus: status,
+				updatedAt: now,
+			};
+
+			// Map execution status to Kanban column status
+			// This moves the task card between columns as execution progresses
+			if (
+				status === "running" ||
+				status === "creating_worktree" ||
+				status === "initializing"
+			) {
+				dbUpdate.status = "running";
+			} else if (status === "completed") {
+				dbUpdate.status = "completed";
+			} else if (status === "failed") {
+				dbUpdate.status = "failed";
+			} else if (status === "cancelled") {
+				dbUpdate.status = "backlog"; // Return to backlog on cancel
+			}
+			// "pending" stays in "queued" column (set by start procedure)
+
+			// Set execution timestamps
+			if (status === "running" && !job.progress.startedAt) {
+				dbUpdate.executionStartedAt = now;
+			}
+			if (
+				status === "completed" ||
+				status === "failed" ||
+				status === "cancelled"
+			) {
+				dbUpdate.executionCompletedAt = now;
+			}
+			if (error) {
+				dbUpdate.executionError = error;
+			}
+
+			localDb
+				.update(planTasks)
+				.set(dbUpdate)
+				.where(eq(planTasks.id, taskId))
+				.run();
+		} catch (dbError) {
+			console.error(
+				`[task-execution] Failed to persist status for ${taskId}:`,
+				dbError,
+			);
+		}
 
 		// Clean up completed/failed/cancelled jobs after a delay
 		if (
@@ -259,6 +316,7 @@ class TaskExecutionManager extends EventEmitter {
 	 * Emit output from task execution and persist to database
 	 */
 	emitOutput(output: TaskExecutionOutput): void {
+		console.log(`[manager] Emitting output for ${output.taskId}: ${output.type} - ${output.content.substring(0, 50)}`);
 		// Emit for live streaming
 		this.emit("output", output);
 		this.emit(`output:${output.taskId}`, output);

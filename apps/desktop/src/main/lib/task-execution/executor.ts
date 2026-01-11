@@ -4,14 +4,11 @@ import {
 	type InsertWorkspace,
 	type InsertWorktree,
 	planTasks,
-	plans,
 	projects,
 	workspaces,
 	worktrees,
 } from "@superset/local-db";
 import { eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
-import { localDb } from "main/lib/local-db";
 import {
 	createWorktree,
 	generateBranchName,
@@ -19,10 +16,9 @@ import {
 	removeWorktree,
 } from "lib/trpc/routers/workspaces/utils/git";
 import { copySupersetConfigToWorktree } from "lib/trpc/routers/workspaces/utils/setup";
-import {
-	taskExecutionManager,
-	type TaskExecutionOutput,
-} from "./manager";
+import { localDb } from "main/lib/local-db";
+import { nanoid } from "nanoid";
+import type { TaskExecutionOutput, taskExecutionManager } from "./manager";
 import { taskTerminalBridge } from "./terminal-bridge";
 
 interface ExecutionJob {
@@ -221,7 +217,12 @@ async function createTaskWorktree({
 		const worktreePath = join(worktreesDir, branch.replace(/\//g, "-"));
 
 		// Create worktree
-		await createWorktree(mainRepoPath, branch, worktreePath, `origin/${baseBranch}`);
+		await createWorktree(
+			mainRepoPath,
+			branch,
+			worktreePath,
+			`origin/${baseBranch}`,
+		);
 
 		// Copy superset config
 		copySupersetConfigToWorktree(mainRepoPath, worktreePath);
@@ -248,7 +249,10 @@ async function createTaskWorktree({
 			.from(workspaces)
 			.where(eq(workspaces.projectId, projectId))
 			.all();
-		const maxTabOrder = Math.max(0, ...existingWorkspaces.map((w) => w.tabOrder));
+		const maxTabOrder = Math.max(
+			0,
+			...existingWorkspaces.map((w) => w.tabOrder),
+		);
 
 		// Create workspace record in DB
 		const workspaceId = nanoid();
@@ -355,12 +359,6 @@ async function runClaudeInWorktree({
 		});
 	};
 
-	// Create terminal session for this task
-	taskTerminalBridge.createSession({
-		taskId,
-		workingDir: worktreePath,
-	});
-
 	// Track completion state
 	let completed = false;
 	let exitCode: number | undefined;
@@ -368,6 +366,7 @@ async function runClaudeInWorktree({
 
 	// Subscribe to terminal output
 	const handleData = (id: string, data: string) => {
+		console.log(`[executor] Received data for ${id}, taskId=${taskId}, match=${id === taskId}`);
 		if (id === taskId) {
 			emitOutput("output", data);
 		}
@@ -390,13 +389,21 @@ async function runClaudeInWorktree({
 		emitOutput("progress", `Starting Claude in ${worktreePath}...`);
 		emitOutput("progress", `Prompt: ${prompt}`);
 
-		// Escape single quotes in prompt for shell command
+		// Escape the prompt for shell usage:
+		// 1. Replace single quotes with '\'' (end quote, escaped quote, start quote)
+		// 2. Wrap in single quotes
 		const escapedPrompt = prompt.replace(/'/g, "'\\''");
+		const shellCommand = `claude -p '${escapedPrompt}'`;
 
-		// Run Claude CLI in the terminal
-		// Using -p flag for non-interactive mode with prompt
-		const claudeCommand = `claude -p '${escapedPrompt}'\n`;
-		taskTerminalBridge.write(taskId, claudeCommand);
+		console.log(`[task-execution] Running: ${shellCommand}`);
+
+		// Create terminal session that runs claude via login shell
+		// Using shell -l -i -c ensures proper environment (PATH, etc.)
+		taskTerminalBridge.createSession({
+			taskId,
+			workingDir: worktreePath,
+			shellCommand,
+		});
 
 		// Wait for completion or cancellation
 		await new Promise<void>((resolve, reject) => {
@@ -414,9 +421,7 @@ async function runClaudeInWorktree({
 					clearInterval(checkInterval);
 					if (exitCode !== 0 || exitError) {
 						reject(
-							new Error(
-								exitError || `Claude exited with code ${exitCode}`,
-							),
+							new Error(exitError || `Claude exited with code ${exitCode}`),
 						);
 					} else {
 						resolve();
@@ -425,13 +430,16 @@ async function runClaudeInWorktree({
 			}, 100);
 
 			// Timeout after 10 minutes
-			setTimeout(() => {
-				if (!completed && !abortSignal.aborted) {
-					clearInterval(checkInterval);
-					taskTerminalBridge.killSession(taskId);
-					reject(new Error("Task timed out after 10 minutes"));
-				}
-			}, 10 * 60 * 1000);
+			setTimeout(
+				() => {
+					if (!completed && !abortSignal.aborted) {
+						clearInterval(checkInterval);
+						taskTerminalBridge.killSession(taskId);
+						reject(new Error("Task timed out after 10 minutes"));
+					}
+				},
+				10 * 60 * 1000,
+			);
 		});
 
 		if (!abortSignal.aborted) {
@@ -471,7 +479,7 @@ async function runClaudeInWorktree({
 async function cleanupWorktree(
 	mainRepoPath: string,
 	worktreePath: string,
-	manager: typeof taskExecutionManager,
+	_manager: typeof taskExecutionManager,
 	taskId: string,
 ): Promise<void> {
 	try {

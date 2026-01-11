@@ -10,6 +10,7 @@ import {
 	createFileViewerPane,
 	createPane,
 	createTabWithPane,
+	createTaskTerminalPane,
 	extractPaneIdsFromLayout,
 	getAdjacentPaneId,
 	getFirstPaneId,
@@ -504,6 +505,77 @@ export const useTabsStore = create<TabsStore>()(
 
 					// No reusable pane found, create a new one
 					const newPane = createFileViewerPane(activeTab.id, options);
+
+					const newLayout: MosaicNode<string> = {
+						direction: "row",
+						first: activeTab.layout,
+						second: newPane.id,
+						splitPercentage: 50,
+					};
+
+					set({
+						tabs: state.tabs.map((t) =>
+							t.id === activeTab.id ? { ...t, layout: newLayout } : t,
+						),
+						panes: { ...state.panes, [newPane.id]: newPane },
+						focusedPaneIds: {
+							...state.focusedPaneIds,
+							[activeTab.id]: newPane.id,
+						},
+					});
+
+					return newPane.id;
+				},
+
+				addTaskTerminalPane: (
+					workspaceId: string,
+					options: { taskId: string; taskTitle?: string },
+				) => {
+					const state = get();
+					const activeTabId = state.activeTabIds[workspaceId];
+					const activeTab = state.tabs.find((t) => t.id === activeTabId);
+
+					// If no active tab, create a new one
+					if (!activeTab) {
+						const { tabId, paneId } = get().addTab(workspaceId);
+						// Update the pane to be a task-terminal
+						set((s) => ({
+							panes: {
+								...s.panes,
+								[paneId]: {
+									...s.panes[paneId],
+									type: "task-terminal",
+									name: options.taskTitle
+										? `Task: ${options.taskTitle}`
+										: "Task Terminal",
+									taskId: options.taskId,
+								},
+							},
+						}));
+						return paneId;
+					}
+
+					// Check if task-terminal pane already exists for this task
+					const tabPaneIds = extractPaneIdsFromLayout(activeTab.layout);
+					const existingPane = tabPaneIds
+						.map((id) => state.panes[id])
+						.find(
+							(p) => p?.type === "task-terminal" && p.taskId === options.taskId,
+						);
+
+					if (existingPane) {
+						// Focus existing pane
+						set({
+							focusedPaneIds: {
+								...state.focusedPaneIds,
+								[activeTab.id]: existingPane.id,
+							},
+						});
+						return existingPane.id;
+					}
+
+					// Create new task-terminal pane
+					const newPane = createTaskTerminalPane(activeTab.id, options);
 
 					const newLayout: MosaicNode<string> = {
 						direction: "row",
