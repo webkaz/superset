@@ -61,6 +61,7 @@ jobs:
   release:
     name: Update Canary Release
     needs: [check-changes, build]
+    if: needs.check-changes.outputs.should_build == 'true'
     runs-on: ubuntu-latest
 
     steps:
