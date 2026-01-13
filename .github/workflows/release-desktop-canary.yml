@@ -2,8 +2,8 @@ name: Release Desktop Canary
 
 on:
   schedule:
-    # Every 12 hours at 6 AM and 6 PM UTC
-    - cron: "0 6,18 * * *"
+    # Every 12 hours at 12 AM and 12 PM UTC
+    - cron: "0 0,12 * * *"
   workflow_dispatch: # Manual trigger for testing
 
 permissions:
