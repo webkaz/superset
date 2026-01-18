@@ -10,6 +10,31 @@ import { PLATFORM } from "shared/constants";
 const UPDATE_CHECK_INTERVAL_MS = 1000 * 60 * 60 * 4; // 4 hours
 
 /**
+ * Detect if an error is network-related (no WiFi, DNS failure, etc.)
+ * These errors are expected during automatic background checks and shouldn't show a toast.
+ */
+function isNetworkError(error: Error): boolean {
+	const message = error.message?.toLowerCase() ?? "";
+	const code = (error as NodeJS.ErrnoException).code?.toLowerCase() ?? "";
+
+	const networkErrorPatterns = [
+		"enotfound", // DNS lookup failed
+		"enetunreach", // Network unreachable
+		"econnrefused", // Connection refused
+		"econnreset", // Connection reset
+		"etimedout", // Connection timed out
+		"err_internet_disconnected", // Chrome/Electron network error
+		"network", // Generic network error
+		"offline", // Offline status
+		"getaddrinfo", // DNS resolution failed
+	];
+
+	return networkErrorPatterns.some(
+		(pattern) => message.includes(pattern) || code.includes(pattern),
+	);
+}
+
+/**
  * Detect if this is a prerelease build from app version using semver.
  * Versions like "0.0.53-canary" have prerelease component ["canary"].
  * Stable versions like "0.0.53" have no prerelease component.
@@ -88,6 +113,15 @@ export function checkForUpdates(): void {
 	isDismissed = false;
 	emitStatus(AUTO_UPDATE_STATUS.CHECKING);
 	autoUpdater.checkForUpdates().catch((error) => {
+		// Network errors are expected during background checks - don't show toast
+		if (isNetworkError(error)) {
+			console.info(
+				"[auto-updater] Skipping update check (network unavailable):",
+				error.message,
+			);
+			emitStatus(AUTO_UPDATE_STATUS.IDLE);
+			return;
+		}
 		console.error("[auto-updater] Failed to check for updates:", error);
 		emitStatus(AUTO_UPDATE_STATUS.ERROR, undefined, error.message);
 	});
@@ -182,6 +216,15 @@ export function setupAutoUpdater(): void {
 	});
 
 	autoUpdater.on("error", (error) => {
+		// Network errors are expected during background checks - don't show toast
+		if (isNetworkError(error)) {
+			console.info(
+				"[auto-updater] Skipping update (network unavailable):",
+				error.message,
+			);
+			emitStatus(AUTO_UPDATE_STATUS.IDLE);
+			return;
+		}
 		console.error("[auto-updater] Error during update check:", error);
 		emitStatus(AUTO_UPDATE_STATUS.ERROR, undefined, error.message);
 	});
