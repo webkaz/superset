@@ -1,5 +1,6 @@
 import { snakeCamelMapper } from "@electric-sql/client";
 import type {
+	SelectCloudWorkspace,
 	SelectMember,
 	SelectOrganization,
 	SelectRepository,
@@ -25,6 +26,7 @@ interface OrgCollections {
 	repositories: Collection<SelectRepository>;
 	members: Collection<SelectMember>;
 	users: Collection<SelectUser>;
+	cloudWorkspaces: Collection<SelectCloudWorkspace>;
 }
 
 // Per-org collections cache
@@ -178,7 +180,50 @@ function createOrgCollections(organizationId: string): OrgCollections {
 		}),
 	);
 
-	return { tasks, taskStatuses, repositories, members, users };
+	const cloudWorkspaces = createCollection(
+		electricCollectionOptions<SelectCloudWorkspace>({
+			id: `cloud_workspaces-${organizationId}`,
+			shapeOptions: {
+				url: electricUrl,
+				params: {
+					table: "cloud_workspaces",
+					organizationId,
+				},
+				headers,
+				columnMapper,
+			},
+			getKey: (item) => item.id,
+			onInsert: async ({ transaction }) => {
+				const item = transaction.mutations[0].modified;
+				const result = await apiClient.cloudWorkspace.create.mutate({
+					organizationId: item.organizationId,
+					repositoryId: item.repositoryId,
+					name: item.name,
+					branch: item.branch,
+					providerType: item.providerType,
+					autoStopMinutes: item.autoStopMinutes,
+				});
+				return { txid: result.txid };
+			},
+			onUpdate: async ({ transaction }) => {
+				const { original, changes } = transaction.mutations[0];
+				const result = await apiClient.cloudWorkspace.update.mutate({
+					workspaceId: original.id,
+					...changes,
+				});
+				return { txid: result.txid };
+			},
+			onDelete: async ({ transaction }) => {
+				const item = transaction.mutations[0].original;
+				const result = await apiClient.cloudWorkspace.delete.mutate({
+					workspaceId: item.id,
+				});
+				return { txid: result.txid };
+			},
+		}),
+	);
+
+	return { tasks, taskStatuses, repositories, members, users, cloudWorkspaces };
 }
 
 /**
