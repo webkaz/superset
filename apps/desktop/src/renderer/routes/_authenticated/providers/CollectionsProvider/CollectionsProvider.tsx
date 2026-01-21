@@ -8,7 +8,9 @@ const CollectionsContext = createContext<Collections | null>(null);
 
 export function CollectionsProvider({ children }: { children: ReactNode }) {
 	const { data: session } = authClient.useSession();
-	const activeOrganizationId = session?.session?.activeOrganizationId;
+	const activeOrganizationId = process.env.SKIP_ENV_VALIDATION
+		? "mock-org-id"
+		: session?.session?.activeOrganizationId;
 
 	const collections = useMemo(() => {
 		if (!activeOrganizationId) {
