@@ -1,6 +1,5 @@
 import { Badge } from "@superset/ui/badge";
 import { ScrollArea } from "@superset/ui/scroll-area";
-import { format } from "date-fns";
 import type { TaskWithStatus } from "../../../components/TasksView/hooks/useTasksTable";
 import { AssigneeProperty } from "./components/AssigneeProperty";
 import { PriorityProperty } from "./components/PriorityProperty";
@@ -28,7 +27,7 @@ export function PropertiesSidebar({ task }: PropertiesSidebarProps) {
 					</div>
 
 					{/* Labels */}
-					<div className="space-y-2">
+					<div className="flex flex-col gap-2">
 						<span className="text-xs text-muted-foreground">Labels</span>
 						{labels.length > 0 ? (
 							<div className="flex flex-wrap gap-1">
@@ -41,26 +40,6 @@ export function PropertiesSidebar({ task }: PropertiesSidebarProps) {
 						) : (
 							<span className="text-sm text-muted-foreground">No labels</span>
 						)}
-					</div>
-
-					{/* Due Date */}
-					<div className="space-y-2">
-						<span className="text-xs text-muted-foreground">Due date</span>
-						{task.dueDate ? (
-							<span className="text-sm">
-								{format(new Date(task.dueDate), "MMM d, yyyy")}
-							</span>
-						) : (
-							<span className="text-sm text-muted-foreground">No due date</span>
-						)}
-					</div>
-
-					{/* Created */}
-					<div className="space-y-2">
-						<span className="text-xs text-muted-foreground">Created</span>
-						<span className="text-sm text-muted-foreground">
-							{format(new Date(task.createdAt), "MMM d, yyyy")}
-						</span>
 					</div>
 				</div>
 			</ScrollArea>

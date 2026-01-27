@@ -1,8 +1,12 @@
+import "highlight.js/styles/github-dark.css";
+import "./task-markdown.css";
+
+import { Extension } from "@tiptap/core";
 import { Blockquote } from "@tiptap/extension-blockquote";
 import { Bold } from "@tiptap/extension-bold";
 import { BulletList } from "@tiptap/extension-bullet-list";
 import { Code } from "@tiptap/extension-code";
-import { CodeBlock } from "@tiptap/extension-code-block";
+import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { Document } from "@tiptap/extension-document";
 import { HardBreak } from "@tiptap/extension-hard-break";
 import { Heading } from "@tiptap/extension-heading";
@@ -15,10 +19,18 @@ import { OrderedList } from "@tiptap/extension-ordered-list";
 import { Paragraph } from "@tiptap/extension-paragraph";
 import Placeholder from "@tiptap/extension-placeholder";
 import { Strike } from "@tiptap/extension-strike";
+import TaskItem from "@tiptap/extension-task-item";
+import TaskList from "@tiptap/extension-task-list";
 import { Text } from "@tiptap/extension-text";
-import { EditorContent, useEditor } from "@tiptap/react";
+import { EditorContent, ReactNodeViewRenderer, useEditor } from "@tiptap/react";
+import { common, createLowlight } from "lowlight";
 import { env } from "renderer/env.renderer";
 import { Markdown } from "tiptap-markdown";
+
+import { CodeBlockView } from "./components/CodeBlockView";
+import { SlashCommand } from "./components/SlashCommand";
+
+const lowlight = createLowlight(common);
 
 const LINEAR_IMAGE_HOST = "uploads.linear.app";
 
@@ -77,6 +89,29 @@ const StyledHeading = Heading.extend({
 	},
 });
 
+const KeyboardHandler = Extension.create({
+	name: "keyboardHandler",
+	addKeyboardShortcuts() {
+		return {
+			Tab: ({ editor }) => {
+				if (editor.commands.sinkListItem("listItem")) return true;
+				if (editor.commands.sinkListItem("taskItem")) return true;
+				// Not in a list - consume event to prevent browser focus navigation
+				return true;
+			},
+			"Shift-Tab": ({ editor }) => {
+				if (editor.commands.liftListItem("listItem")) return true;
+				if (editor.commands.liftListItem("taskItem")) return true;
+				return true;
+			},
+			Escape: ({ editor }) => {
+				editor.commands.blur();
+				return true;
+			},
+		};
+	},
+});
+
 interface TaskMarkdownRendererProps {
 	content: string;
 	onSave: (markdown: string) => void;
@@ -108,20 +143,34 @@ export function TaskMarkdownRenderer({
 					class: "font-mono text-sm px-1 py-0.5 rounded bg-muted",
 				},
 			}),
-			CodeBlock.configure({
+			CodeBlockLowlight.extend({
+				addNodeView() {
+					return ReactNodeViewRenderer(CodeBlockView);
+				},
+			}).configure({
+				lowlight,
 				HTMLAttributes: {
 					class:
 						"my-3 p-3 rounded-md bg-muted overflow-x-auto font-mono text-sm",
 				},
 			}),
 			BulletList.configure({
-				HTMLAttributes: { class: "mt-0 mb-3 pl-6 list-disc" },
+				HTMLAttributes: {
+					class: "task-markdown-list mt-0 pl-6",
+				},
 			}),
 			OrderedList.configure({
 				HTMLAttributes: { class: "mt-0 mb-3 pl-6 list-decimal" },
 			}),
 			ListItem.configure({
-				HTMLAttributes: { class: "mb-1 leading-relaxed" },
+				HTMLAttributes: {},
+			}),
+			TaskList.configure({
+				HTMLAttributes: { class: "mt-0 mb-3 pl-0 list-none" },
+			}),
+			TaskItem.configure({
+				HTMLAttributes: { class: "flex items-start gap-2 mb-1" },
+				nested: true,
 			}),
 			Blockquote.configure({
 				HTMLAttributes: {
@@ -140,7 +189,13 @@ export function TaskMarkdownRenderer({
 				HTMLAttributes: { class: "max-w-full h-auto rounded-md my-3" },
 			}),
 			Placeholder.configure({
-				placeholder: "Add description...",
+				placeholder: ({ node }) => {
+					if (node.type.name === "paragraph") {
+						return "Add description...";
+					}
+					return "";
+				},
+				showOnlyCurrent: false,
 				emptyNodeClass:
 					"first:before:text-muted-foreground first:before:float-left first:before:h-0 first:before:pointer-events-none first:before:content-[attr(data-placeholder)]",
 			}),
@@ -149,6 +204,8 @@ export function TaskMarkdownRenderer({
 				transformPastedText: true,
 				transformCopiedText: true,
 			}),
+			SlashCommand,
+			KeyboardHandler,
 		],
 		content,
 		editorProps: {

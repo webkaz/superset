@@ -13,6 +13,7 @@ import { ActivitySection } from "./components/ActivitySection";
 import { CommentInput } from "./components/CommentInput";
 import { PropertiesSidebar } from "./components/PropertiesSidebar";
 import { TaskMarkdownRenderer } from "./components/TaskMarkdownRenderer";
+import { useEscapeToNavigate } from "./hooks/useEscapeToNavigate";
 
 export const Route = createFileRoute(
 	"/_authenticated/_dashboard/tasks/$taskId/",
@@ -24,6 +25,8 @@ function TaskDetailPage() {
 	const { taskId } = Route.useParams();
 	const navigate = useNavigate();
 	const collections = useCollections();
+
+	useEscapeToNavigate("/tasks");
 
 	const { data: taskData } = useLiveQuery(
 		(q) =>

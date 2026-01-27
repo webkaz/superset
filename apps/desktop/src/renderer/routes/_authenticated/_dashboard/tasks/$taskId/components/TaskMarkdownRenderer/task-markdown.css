@@ -1,0 +1,31 @@
+/* Alternating bullet styles - works at any nesting depth */
+.task-markdown-list {
+	list-style-type: disc !important;
+}
+
+.task-markdown-list ul {
+	list-style-type: circle !important;
+	margin: 0;
+	padding-left: 1.5rem;
+}
+
+.task-markdown-list ul ul {
+	list-style-type: disc !important;
+}
+
+.task-markdown-list ul ul ul {
+	list-style-type: circle !important;
+}
+
+.task-markdown-list ul ul ul ul {
+	list-style-type: disc !important;
+}
+
+.task-markdown-list ul ul ul ul ul {
+	list-style-type: circle !important;
+}
+
+/* Tighter spacing for list items */
+.task-markdown-list li {
+	margin: 0;
+}
