@@ -68,6 +68,7 @@
 		"@tiptap/extension-document": "^3.17.1",
 		"@tiptap/extension-hard-break": "^3.17.1",
 		"@tiptap/extension-heading": "^3.17.1",
+		"@tiptap/extension-history": "^3.17.1",
 		"@tiptap/extension-horizontal-rule": "^3.17.1",
 		"@tiptap/extension-image": "^3.17.1",
 		"@tiptap/extension-italic": "^3.17.1",

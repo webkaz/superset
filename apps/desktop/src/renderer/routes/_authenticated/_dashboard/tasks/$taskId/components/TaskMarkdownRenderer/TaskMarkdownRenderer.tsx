@@ -10,6 +10,7 @@ import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { Document } from "@tiptap/extension-document";
 import { HardBreak } from "@tiptap/extension-hard-break";
 import { Heading } from "@tiptap/extension-heading";
+import { History } from "@tiptap/extension-history";
 import { HorizontalRule } from "@tiptap/extension-horizontal-rule";
 import Image from "@tiptap/extension-image";
 import { Italic } from "@tiptap/extension-italic";
@@ -28,7 +29,6 @@ import { common, createLowlight } from "lowlight";
 import { env } from "renderer/env.renderer";
 import { Markdown } from "tiptap-markdown";
 
-import { BubbleMenu } from "./components/BubbleMenu";
 import { CodeBlockView } from "./components/CodeBlockView";
 import { SlashCommand } from "./components/SlashCommand";
 
@@ -186,6 +186,7 @@ export function TaskMarkdownRenderer({
 				HTMLAttributes: { class: "my-6 border-none border-t border-border" },
 			}),
 			HardBreak,
+			History,
 			Link.configure({
 				openOnClick: false,
 				HTMLAttributes: { class: "text-primary underline" },
@@ -230,7 +231,6 @@ export function TaskMarkdownRenderer({
 
 	return (
 		<div className="w-full">
-			{editor && <BubbleMenu editor={editor} />}
 			<EditorContent editor={editor} className="w-full" />
 		</div>
 	);
