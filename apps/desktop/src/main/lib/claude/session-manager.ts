@@ -13,6 +13,7 @@
  */
 
 import { EventEmitter } from "node:events";
+import { DurableStream, IdempotentProducer } from "@durable-streams/client";
 import { buildClaudeEnv, getClaudeBinaryPath } from "./index";
 
 const DURABLE_STREAM_URL =
@@ -53,102 +54,47 @@ interface ActiveSession {
 	cwd: string;
 	claudeSessionId?: string;
 	abortController?: AbortController;
-	streamEnabled: boolean;
 	streamWatcher?: StreamWatcher;
 	processingMessageIds: Set<string>;
 }
 
 // ============================================================================
-// Durable Stream Client
+// Durable Stream Producers (per-session)
 // ============================================================================
 
-class DurableStreamClient {
-	private baseUrl: string;
-	private eventQueue: Map<string, Array<Record<string, unknown>>> = new Map();
-	private flushTimeouts: Map<string, NodeJS.Timeout> = new Map();
+const sessionProducers = new Map<string, IdempotentProducer>();
 
-	constructor(baseUrl: string) {
-		this.baseUrl = baseUrl;
+async function createProducer(sessionId: string): Promise<IdempotentProducer> {
+	const streamOpts = {
+		url: `${DURABLE_STREAM_URL}/streams/${sessionId}`,
+		contentType: "application/json",
+	};
+
+	let stream: DurableStream;
+	try {
+		stream = await DurableStream.create(streamOpts);
+	} catch {
+		// Stream may already exist — connect to it
+		stream = await DurableStream.connect(streamOpts);
 	}
 
-	async createStream(sessionId: string): Promise<boolean> {
-		try {
-			const response = await fetch(`${this.baseUrl}/streams/${sessionId}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-			});
-			return response.ok;
-		} catch (error) {
-			console.error(`[durable-stream] Failed to create stream:`, error);
-			return false;
-		}
-	}
+	const producer = new IdempotentProducer(stream, "session-manager", {
+		autoClaim: true,
+		onError: (err: Error) =>
+			console.error(`[durable-stream] Batch failed for ${sessionId}:`, err),
+	});
 
-	queueEvent(sessionId: string, event: Record<string, unknown>): void {
-		let queue = this.eventQueue.get(sessionId);
-		if (!queue) {
-			queue = [];
-			this.eventQueue.set(sessionId, queue);
-		}
-
-		queue.push({
-			...event,
-			timestamp: Date.now(),
-		});
-
-		const existingTimeout = this.flushTimeouts.get(sessionId);
-		if (existingTimeout) {
-			clearTimeout(existingTimeout);
-		}
-
-		if (queue.length >= 10) {
-			this.flushEvents(sessionId);
-		} else {
-			const timeout = setTimeout(() => this.flushEvents(sessionId), 50);
-			this.flushTimeouts.set(sessionId, timeout);
-		}
-	}
-
-	private async flushEvents(sessionId: string): Promise<void> {
-		const queue = this.eventQueue.get(sessionId);
-		if (!queue || queue.length === 0) return;
-
-		this.eventQueue.set(sessionId, []);
-		this.flushTimeouts.delete(sessionId);
-
-		try {
-			await fetch(`${this.baseUrl}/streams/${sessionId}`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(queue),
-			});
-		} catch (error) {
-			console.error(`[durable-stream] Failed to post events:`, error);
-			const currentQueue = this.eventQueue.get(sessionId) || [];
-			this.eventQueue.set(sessionId, [...queue, ...currentQueue]);
-		}
-	}
-
-	async flushAll(sessionId: string): Promise<void> {
-		const timeout = this.flushTimeouts.get(sessionId);
-		if (timeout) {
-			clearTimeout(timeout);
-			this.flushTimeouts.delete(sessionId);
-		}
-		await this.flushEvents(sessionId);
-	}
-
-	cleanup(sessionId: string): void {
-		this.eventQueue.delete(sessionId);
-		const timeout = this.flushTimeouts.get(sessionId);
-		if (timeout) {
-			clearTimeout(timeout);
-			this.flushTimeouts.delete(sessionId);
-		}
-	}
+	sessionProducers.set(sessionId, producer);
+	return producer;
 }
 
-const durableStreamClient = new DurableStreamClient(DURABLE_STREAM_URL);
+async function closeProducer(sessionId: string): Promise<void> {
+	const producer = sessionProducers.get(sessionId);
+	if (!producer) return;
+	await producer.flush();
+	await producer.close();
+	sessionProducers.delete(sessionId);
+}
 
 // ============================================================================
 // Stream Watcher
@@ -265,11 +211,12 @@ class ClaudeSessionManager extends EventEmitter {
 
 		console.log(`[claude/session] Initializing session ${sessionId} in ${cwd}`);
 
-		let streamEnabled = false;
 		if (enableDurableStream) {
-			streamEnabled = await durableStreamClient.createStream(sessionId);
-			if (streamEnabled) {
+			try {
+				await createProducer(sessionId);
 				console.log(`[claude/session] Durable stream created for ${sessionId}`);
+			} catch (error) {
+				console.error(`[claude/session] Failed to create stream:`, error);
 			}
 		}
 
@@ -277,13 +224,12 @@ class ClaudeSessionManager extends EventEmitter {
 			sessionId,
 			cwd,
 			claudeSessionId,
-			streamEnabled,
 			processingMessageIds: new Set(),
 		};
 
 		this.sessions.set(sessionId, session);
 
-		if (streamEnabled) {
+		if (sessionProducers.has(sessionId)) {
 			const watcher = new StreamWatcher((messageId, content) => {
 				if (session.processingMessageIds.has(messageId)) {
 					return;
@@ -396,20 +342,23 @@ class ClaudeSessionManager extends EventEmitter {
 				}
 
 				// Persist raw SDK message to durable stream
-				if (session.streamEnabled) {
-					durableStreamClient.queueEvent(sessionId, {
-						type: "chunk",
-						key: `${messageId}:${seq}`,
-						value: {
-							messageId,
-							actorId: "claude",
-							role: "assistant",
-							chunk: msg,
-							seq: seq++,
-							createdAt: new Date().toISOString(),
-						},
-						headers: { operation: "upsert" },
-					});
+				const producer = sessionProducers.get(sessionId);
+				if (producer) {
+					producer.append(
+						JSON.stringify({
+							type: "chunk",
+							key: `${messageId}:${seq}`,
+							value: {
+								messageId,
+								actorId: "claude",
+								role: "assistant",
+								chunk: msg,
+								seq: seq++,
+								createdAt: new Date().toISOString(),
+							},
+							headers: { operation: "upsert" },
+						}),
+					);
 				}
 
 				// Log for debugging
@@ -421,8 +370,9 @@ class ClaudeSessionManager extends EventEmitter {
 			sdkSession.close();
 
 			// Flush pending events
-			if (session.streamEnabled) {
-				await durableStreamClient.flushAll(sessionId);
+			const flushProducer = sessionProducers.get(sessionId);
+			if (flushProducer) {
+				await flushProducer.flush();
 			}
 
 			console.log(
@@ -466,7 +416,7 @@ class ClaudeSessionManager extends EventEmitter {
 		session.abortController?.abort();
 		session.streamWatcher?.stop();
 		this.sessions.delete(sessionId);
-		durableStreamClient.cleanup(sessionId);
+		await closeProducer(sessionId);
 	}
 
 	isSessionActive(sessionId: string): boolean {
