@@ -97,8 +97,9 @@ function zodToJsonSchema(schema: z.ZodType): Record<string, unknown> {
 
 	// Unwrap optional/default wrappers
 	const innerSchema = unwrapZod(schema);
-	const innerDef = (innerSchema as { _zod?: { def?: Record<string, unknown> } })
-		._zod?.def;
+	const innerDef = (
+		innerSchema as unknown as { _zod?: { def?: Record<string, unknown> } }
+	)._zod?.def;
 	const typeName = (innerDef?.typeName ??
 		def?.type ??
 		def?.typeName ??

@@ -23,7 +23,7 @@ interface SSEWriter {
 async function transcribeAudio(audioBuffer: Uint8Array): Promise<string> {
 	const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
-	const blob = new Blob([audioBuffer], { type: "audio/wav" });
+	const blob = new Blob([audioBuffer as BlobPart], { type: "audio/wav" });
 	const file = new File([blob], "audio.wav", { type: "audio/wav" });
 
 	const result = await openai.audio.transcriptions.create({
