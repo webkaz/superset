@@ -41,10 +41,6 @@ fi
 
 echo "[voice-sidecar] Building binary..."
 
-# Resolve the openwakeword package directory so we can explicitly add its
-# data files. --collect-data alone can miss them depending on PyInstaller version.
-OWW_DIR=$("$PYTHON" -c "import openwakeword, os; print(os.path.dirname(openwakeword.__file__))")
-
 "$PYTHON" -m PyInstaller \
   --name voice-sidecar \
   --onedir \
@@ -54,14 +50,25 @@ OWW_DIR=$("$PYTHON" -c "import openwakeword, os; print(os.path.dirname(openwakew
   --workpath "$DESKTOP_DIR/dist/voice-sidecar-build" \
   --specpath "$DESKTOP_DIR/dist" \
   --collect-data openwakeword \
-  --add-data "$OWW_DIR:openwakeword" \
   "$PYTHON_DIR/main.py"
 
-echo "[voice-sidecar] Built at: $OUTPUT_DIR/voice-sidecar/"
-ls -la "$OUTPUT_DIR/voice-sidecar/"
+BUNDLE_DIR="$OUTPUT_DIR/voice-sidecar"
+INTERNAL_DIR="$BUNDLE_DIR/_internal"
 
-# Verify the wake word model was bundled
-if [ ! -f "$OUTPUT_DIR/voice-sidecar/_internal/openwakeword/resources/models/hey_jarvis_v0.1.onnx" ]; then
+echo "[voice-sidecar] Built at: $BUNDLE_DIR/"
+ls -la "$BUNDLE_DIR/"
+
+# PyInstaller's --collect-data may miss openwakeword's data files.
+# Copy them manually as a guaranteed fallback.
+if [ ! -f "$INTERNAL_DIR/openwakeword/resources/models/hey_jarvis_v0.1.onnx" ]; then
+  echo "[voice-sidecar] Model not found in bundle, copying openwakeword data manually..."
+  OWW_PKG_DIR=$("$PYTHON" -c "import openwakeword, os; print(os.path.dirname(openwakeword.__file__))")
+  mkdir -p "$INTERNAL_DIR/openwakeword"
+  cp -R "$OWW_PKG_DIR/"* "$INTERNAL_DIR/openwakeword/"
+fi
+
+# Final verification
+if [ ! -f "$INTERNAL_DIR/openwakeword/resources/models/hey_jarvis_v0.1.onnx" ]; then
   echo "[voice-sidecar] ERROR: hey_jarvis model not found in bundle!"
   exit 1
 fi
