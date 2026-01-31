@@ -3,29 +3,44 @@
 import { Badge } from "@superset/ui/badge";
 import { Button } from "@superset/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@superset/ui/card";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@superset/ui/dropdown-menu";
 import { Input } from "@superset/ui/input";
 import { ScrollArea } from "@superset/ui/scroll-area";
 import { cn } from "@superset/ui/utils";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+	LuArchive,
+	LuCheck,
 	LuCircle,
 	LuGitBranch,
 	LuGithub,
 	LuLoader,
+	LuEllipsis,
 	LuPanelLeftClose,
 	LuPanelLeftOpen,
+	LuPencil,
 	LuPlus,
 	LuSend,
 	LuSquare,
 	LuTerminal,
 	LuWifi,
 	LuWifiOff,
+	LuX,
 } from "react-icons/lu";
 
 import { env } from "@/env";
+import { useTRPC } from "@/trpc/react";
 import { type CloudEvent, useCloudSession } from "../../hooks";
 import { ToolCallGroup } from "../ToolCallGroup";
 
@@ -190,11 +205,86 @@ export function CloudWorkspaceContent({
 	workspace,
 	workspaces,
 }: CloudWorkspaceContentProps) {
+	const trpc = useTRPC();
+	const router = useRouter();
+	const searchParams = useSearchParams();
+	const queryClient = useQueryClient();
+	const initialPromptRef = useRef<string | null>(null);
+	const hasSentInitialPrompt = useRef(false);
+
 	const [promptInput, setPromptInput] = useState("");
 	const [sidebarOpen, setSidebarOpen] = useState(true);
 	const [searchQuery, setSearchQuery] = useState("");
+	const [isEditingTitle, setIsEditingTitle] = useState(false);
+	const [editedTitle, setEditedTitle] = useState(workspace.title);
+	const [isMounted, setIsMounted] = useState(false);
 	const scrollAreaRef = useRef<HTMLDivElement>(null);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const titleInputRef = useRef<HTMLInputElement>(null);
+
+	// Track hydration to avoid Radix ID mismatch
+	useEffect(() => {
+		setIsMounted(true);
+	}, []);
+
+	// Update title mutation
+	const updateMutation = useMutation(
+		trpc.cloudWorkspace.update.mutationOptions({
+			onSuccess: () => {
+				setIsEditingTitle(false);
+				queryClient.invalidateQueries({
+					queryKey: trpc.cloudWorkspace.getBySessionId.queryKey({
+						sessionId: workspace.sessionId,
+					}),
+				});
+			},
+		}),
+	);
+
+	// Archive mutation
+	const archiveMutation = useMutation(
+		trpc.cloudWorkspace.archive.mutationOptions({
+			onSuccess: () => {
+				router.push("/cloud");
+			},
+		}),
+	);
+
+	const handleTitleSave = useCallback(() => {
+		if (editedTitle.trim() && editedTitle !== workspace.title) {
+			updateMutation.mutate({ id: workspace.id, title: editedTitle.trim() });
+		} else {
+			setIsEditingTitle(false);
+			setEditedTitle(workspace.title);
+		}
+	}, [editedTitle, workspace.title, workspace.id, updateMutation]);
+
+	const handleTitleKeyDown = useCallback(
+		(e: React.KeyboardEvent) => {
+			if (e.key === "Enter") {
+				e.preventDefault();
+				handleTitleSave();
+			} else if (e.key === "Escape") {
+				setIsEditingTitle(false);
+				setEditedTitle(workspace.title);
+			}
+		},
+		[handleTitleSave, workspace.title],
+	);
+
+	const handleArchive = useCallback(() => {
+		if (confirm("Are you sure you want to archive this session?")) {
+			archiveMutation.mutate({ id: workspace.id });
+		}
+	}, [archiveMutation, workspace.id]);
+
+	// Focus title input when editing starts
+	useEffect(() => {
+		if (isEditingTitle && titleInputRef.current) {
+			titleInputRef.current.focus();
+			titleInputRef.current.select();
+		}
+	}, [isEditingTitle]);
 
 	const {
 		isConnected,
@@ -205,11 +295,18 @@ export function CloudWorkspaceContent({
 		isSpawning,
 		isProcessing,
 		isSandboxReady,
+		isControlPlaneAvailable,
+		spawnAttempt,
+		maxSpawnAttempts,
 		error,
 		sessionState,
 		events,
+		pendingPrompts,
 		sendPrompt,
 		sendStop,
+		sendTyping,
+		spawnSandbox,
+		clearError,
 	} = useCloudSession({
 		controlPlaneUrl: CONTROL_PLANE_URL,
 		sessionId: workspace.sessionId,
@@ -247,6 +344,78 @@ export function CloudWorkspaceContent({
 		},
 		[handleSendPrompt],
 	);
+
+	// Global keyboard shortcuts
+	useEffect(() => {
+		const handleGlobalKeyDown = (e: KeyboardEvent) => {
+			const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+			const modKey = isMac ? e.metaKey : e.ctrlKey;
+
+			// ⌘+Enter or Ctrl+Enter to send prompt
+			if (modKey && e.key === "Enter") {
+				e.preventDefault();
+				handleSendPrompt();
+				return;
+			}
+
+			// Escape to stop execution
+			if (e.key === "Escape" && isExecuting) {
+				e.preventDefault();
+				sendStop();
+				return;
+			}
+
+			// ⌘+K or Ctrl+K to focus input
+			if (modKey && e.key === "k") {
+				e.preventDefault();
+				inputRef.current?.focus();
+				return;
+			}
+
+			// ⌘+\ or Ctrl+\ to toggle sidebar
+			if (modKey && e.key === "\\") {
+				e.preventDefault();
+				setSidebarOpen((prev) => !prev);
+				return;
+			}
+		};
+
+		window.addEventListener("keydown", handleGlobalKeyDown);
+		return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+	}, [handleSendPrompt, isExecuting, sendStop]);
+
+	// Auto-send initial prompt from URL when sandbox is ready
+	useEffect(() => {
+		// Capture initial prompt from URL on mount
+		if (initialPromptRef.current === null) {
+			const prompt = searchParams.get("prompt");
+			initialPromptRef.current = prompt || "";
+
+			// If there's a prompt, pre-populate the input
+			if (prompt) {
+				setPromptInput(prompt);
+				// Clear the URL param to avoid re-sending on refresh
+				router.replace(`/cloud/${workspace.sessionId}`, { scroll: false });
+			}
+		}
+	}, [searchParams, router, workspace.sessionId]);
+
+	// Send initial prompt when sandbox becomes ready
+	useEffect(() => {
+		if (
+			isSandboxReady &&
+			isConnected &&
+			!hasSentInitialPrompt.current &&
+			initialPromptRef.current &&
+			initialPromptRef.current.trim()
+		) {
+			hasSentInitialPrompt.current = true;
+			const prompt = initialPromptRef.current;
+			console.log("[cloud-workspace] Auto-sending initial prompt:", prompt.substring(0, 50));
+			sendPrompt(prompt);
+			setPromptInput("");
+		}
+	}, [isSandboxReady, isConnected, sendPrompt]);
 
 	const groupedEvents = useMemo(() => groupEvents(events), [events]);
 
@@ -360,9 +529,31 @@ export function CloudWorkspaceContent({
 						)}
 					</Button>
 					<div className="flex-1 min-w-0">
-						<h1 className="text-sm font-semibold truncate">
-							{workspace.title}
-						</h1>
+						{isEditingTitle ? (
+							<div className="flex items-center gap-1">
+								<Input
+									ref={titleInputRef}
+									value={editedTitle}
+									onChange={(e) => setEditedTitle(e.target.value)}
+									onKeyDown={handleTitleKeyDown}
+									onBlur={handleTitleSave}
+									className="h-7 text-sm font-semibold"
+									disabled={updateMutation.isPending}
+								/>
+								{updateMutation.isPending && (
+									<LuLoader className="size-4 animate-spin" />
+								)}
+							</div>
+						) : (
+							<button
+								type="button"
+								onClick={() => setIsEditingTitle(true)}
+								className="text-sm font-semibold truncate hover:text-muted-foreground transition-colors text-left w-full flex items-center gap-1 group"
+							>
+								<span className="truncate">{workspace.title}</span>
+								<LuPencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity shrink-0" />
+							</button>
+						)}
 						<div className="flex items-center gap-2 text-xs text-muted-foreground">
 							<LuGithub className="size-3" />
 							<span className="truncate">
@@ -403,11 +594,52 @@ export function CloudWorkspaceContent({
 								}
 								className="gap-1"
 							>
-								{isSpawning && <LuLoader className="size-3 animate-spin" />}
+								{(isSpawning ||
+									sessionState?.sandboxStatus === "warming" ||
+									sessionState?.sandboxStatus === "syncing") && (
+									<LuLoader className="size-3 animate-spin" />
+								)}
 								{isSpawning
-									? "Spawning..."
-									: sessionState?.sandboxStatus || workspace.sandboxStatus}
+									? spawnAttempt > 0
+										? `Spawning (${spawnAttempt + 1}/${maxSpawnAttempts})...`
+										: "Spawning..."
+									: sessionState?.sandboxStatus === "warming"
+										? "Warming..."
+										: sessionState?.sandboxStatus || workspace.sandboxStatus}
 							</Badge>
+						)}
+						{/* Session menu - only render after hydration to avoid Radix ID mismatch */}
+						{isMounted ? (
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button variant="ghost" size="icon" className="size-8">
+										<LuEllipsis className="size-4" />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end">
+									<DropdownMenuItem onClick={() => setIsEditingTitle(true)}>
+										<LuPencil className="size-4 mr-2" />
+										Rename
+									</DropdownMenuItem>
+									<DropdownMenuSeparator />
+									<DropdownMenuItem
+										onClick={handleArchive}
+										className="text-destructive focus:text-destructive"
+										disabled={archiveMutation.isPending}
+									>
+										{archiveMutation.isPending ? (
+											<LuLoader className="size-4 mr-2 animate-spin" />
+										) : (
+											<LuArchive className="size-4 mr-2" />
+										)}
+										Archive Session
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						) : (
+							<Button variant="ghost" size="icon" className="size-8">
+								<LuEllipsis className="size-4" />
+							</Button>
 						)}
 					</div>
 				</header>
@@ -444,7 +676,60 @@ export function CloudWorkspaceContent({
 							{error && (
 								<Card className="border-destructive">
 									<CardContent className="pt-4">
-										<p className="text-sm text-destructive">{error}</p>
+										<div className="flex items-start justify-between gap-4">
+											<div className="space-y-1">
+												<p className="text-sm text-destructive">{error}</p>
+												{!isControlPlaneAvailable && (
+													<p className="text-xs text-muted-foreground">
+														The cloud service may be temporarily unavailable.
+													</p>
+												)}
+												{spawnAttempt > 0 && spawnAttempt >= maxSpawnAttempts && (
+													<p className="text-xs text-muted-foreground">
+														Failed after {maxSpawnAttempts} attempts.
+													</p>
+												)}
+											</div>
+											<div className="flex gap-2 shrink-0">
+												{spawnAttempt >= maxSpawnAttempts && (
+													<Button
+														variant="outline"
+														size="sm"
+														onClick={() => {
+															clearError();
+															spawnSandbox();
+														}}
+														disabled={isSpawning}
+													>
+														{isSpawning ? (
+															<LuLoader className="size-4 animate-spin mr-1" />
+														) : null}
+														Retry
+													</Button>
+												)}
+												<Button
+													variant="ghost"
+													size="sm"
+													onClick={clearError}
+												>
+													<LuX className="size-4" />
+												</Button>
+											</div>
+										</div>
+									</CardContent>
+								</Card>
+							)}
+
+							{/* Pending prompts indicator */}
+							{pendingPrompts.length > 0 && (
+								<Card className="border-amber-500/50 bg-amber-500/5">
+									<CardContent className="pt-4">
+										<div className="flex items-center gap-2 text-amber-600 dark:text-amber-500">
+											<LuLoader className="size-4 animate-spin" />
+											<span className="text-sm">
+												{pendingPrompts.length} prompt{pendingPrompts.length > 1 ? 's' : ''} queued - will send when connection is restored
+											</span>
+										</div>
 									</CardContent>
 								</Card>
 							)}
@@ -504,7 +789,13 @@ export function CloudWorkspaceContent({
 							<Input
 								ref={inputRef}
 								value={promptInput}
-								onChange={(e) => setPromptInput(e.target.value)}
+								onChange={(e) => {
+									setPromptInput(e.target.value);
+									// Trigger sandbox pre-warming on first keystroke
+									if (e.target.value.length > 0) {
+										sendTyping();
+									}
+								}}
 								onKeyDown={handleKeyDown}
 								placeholder={
 									!isConnected

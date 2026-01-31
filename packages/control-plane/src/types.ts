@@ -110,7 +110,8 @@ export type ClientMessage =
 	| { type: "subscribe"; token: string }
 	| { type: "prompt"; content: string; authorId: string }
 	| { type: "stop" }
-	| { type: "ping" };
+	| { type: "ping" }
+	| { type: "typing" };
 
 /**
  * Historical message data sent to clients on subscribe.

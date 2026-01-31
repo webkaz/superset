@@ -1,11 +1,31 @@
 "use client";
 
 import { Button } from "@superset/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@superset/ui/dropdown-menu";
 import { Input } from "@superset/ui/input";
 import { ScrollArea } from "@superset/ui/scroll-area";
+import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { LuChevronDown, LuPaperclip, LuPlus, LuSend } from "react-icons/lu";
+import {
+	LuChevronDown,
+	LuGithub,
+	LuLoader,
+	LuLock,
+	LuPaperclip,
+	LuPlus,
+	LuSend,
+} from "react-icons/lu";
+
+import { env } from "@/env";
+import { useTRPC } from "@/trpc/react";
 
 function _SupersetIcon({ className }: { className?: string }) {
 	return (
@@ -56,8 +76,24 @@ interface CloudWorkspace {
 	updatedAt: Date;
 }
 
+interface GitHubRepository {
+	id: string;
+	repoId: string;
+	installationId: string;
+	owner: string;
+	name: string;
+	fullName: string;
+	defaultBranch: string;
+	isPrivate: boolean;
+	createdAt: Date;
+	updatedAt: Date;
+}
+
 interface CloudHomePageProps {
+	organizationId: string;
 	workspaces: CloudWorkspace[];
+	hasGitHubInstallation: boolean;
+	githubRepositories: GitHubRepository[];
 }
 
 function formatRelativeTime(date: Date): string {
@@ -81,8 +117,69 @@ function isInactive(date: Date): boolean {
 	return days > 7;
 }
 
-export function CloudHomePage({ workspaces }: CloudHomePageProps) {
+export function CloudHomePage({
+	organizationId,
+	workspaces,
+	hasGitHubInstallation,
+	githubRepositories,
+}: CloudHomePageProps) {
+	const trpc = useTRPC();
+	const router = useRouter();
 	const [searchQuery, setSearchQuery] = useState("");
+	const [promptInput, setPromptInput] = useState("");
+	const [selectedRepo, setSelectedRepo] = useState<GitHubRepository | null>(
+		null,
+	);
+
+	// Get recent repos (from recent workspaces)
+	const recentRepos = useMemo(() => {
+		const repoMap = new Map<string, GitHubRepository>();
+		for (const ws of workspaces.slice(0, 5)) {
+			const repo = githubRepositories.find(
+				(r) => r.owner === ws.repoOwner && r.name === ws.repoName,
+			);
+			if (repo && !repoMap.has(repo.id)) {
+				repoMap.set(repo.id, repo);
+			}
+		}
+		return Array.from(repoMap.values()).slice(0, 3);
+	}, [workspaces, githubRepositories]);
+
+	// Create session mutation
+	const createMutation = useMutation(
+		trpc.cloudWorkspace.create.mutationOptions({
+			onSuccess: (workspace) => {
+				if (workspace) {
+					// Optimistic navigation with initial prompt as URL param
+					const prompt = promptInput.trim();
+					const url = prompt
+						? `/cloud/${workspace.sessionId}?prompt=${encodeURIComponent(prompt)}`
+						: `/cloud/${workspace.sessionId}`;
+					router.push(url);
+				}
+			},
+		}),
+	);
+
+	const handleQuickCreate = () => {
+		if (!selectedRepo) return;
+
+		createMutation.mutate({
+			repositoryId: selectedRepo.id,
+			repoOwner: selectedRepo.owner,
+			repoName: selectedRepo.name,
+			title: promptInput.trim() || `${selectedRepo.owner}/${selectedRepo.name}`,
+			model: "claude-sonnet-4",
+			baseBranch: selectedRepo.defaultBranch,
+		});
+	};
+
+	const handleKeyDown = (e: React.KeyboardEvent) => {
+		if (e.key === "Enter" && !e.shiftKey && selectedRepo && promptInput.trim()) {
+			e.preventDefault();
+			handleQuickCreate();
+		}
+	};
 
 	const filteredWorkspaces = useMemo(() => {
 		if (!searchQuery.trim()) return workspaces;
@@ -167,26 +264,121 @@ export function CloudHomePage({ workspaces }: CloudHomePageProps) {
 				<div className="flex-1 flex flex-col items-center justify-center p-8">
 					{/* Centered prompt input */}
 					<div className="w-full max-w-2xl space-y-4">
+						{/* Repo selector row */}
+						{hasGitHubInstallation && githubRepositories.length > 0 && (
+							<div className="flex items-center gap-2 flex-wrap">
+								<DropdownMenu>
+									<DropdownMenuTrigger asChild>
+										<Button
+											variant="outline"
+											size="sm"
+											className="gap-2 h-8"
+										>
+											<LuGithub className="size-4" />
+											{selectedRepo ? (
+												<span className="flex items-center gap-1">
+													{selectedRepo.isPrivate && (
+														<LuLock className="size-3" />
+													)}
+													{selectedRepo.fullName}
+												</span>
+											) : (
+												"Select repository"
+											)}
+											<LuChevronDown className="size-3" />
+										</Button>
+									</DropdownMenuTrigger>
+									<DropdownMenuContent align="start" className="w-64">
+										{recentRepos.length > 0 && (
+											<>
+												<div className="px-2 py-1.5 text-xs text-muted-foreground">
+													Recent
+												</div>
+												{recentRepos.map((repo) => (
+													<DropdownMenuItem
+														key={repo.id}
+														onClick={() => setSelectedRepo(repo)}
+														className="flex items-center gap-2"
+													>
+														{repo.isPrivate && <LuLock className="size-3" />}
+														<span className="truncate">{repo.fullName}</span>
+													</DropdownMenuItem>
+												))}
+												<DropdownMenuSeparator />
+											</>
+										)}
+										<div className="px-2 py-1.5 text-xs text-muted-foreground">
+											All repositories
+										</div>
+										{githubRepositories.map((repo) => (
+											<DropdownMenuItem
+												key={repo.id}
+												onClick={() => setSelectedRepo(repo)}
+												className="flex items-center gap-2"
+											>
+												{repo.isPrivate && <LuLock className="size-3" />}
+												<span className="truncate">{repo.fullName}</span>
+											</DropdownMenuItem>
+										))}
+									</DropdownMenuContent>
+								</DropdownMenu>
+
+								{/* Quick select chips for recent repos */}
+								{!selectedRepo &&
+									recentRepos.slice(0, 2).map((repo) => (
+										<Button
+											key={repo.id}
+											variant="ghost"
+											size="sm"
+											className="h-7 text-xs text-muted-foreground"
+											onClick={() => setSelectedRepo(repo)}
+										>
+											{repo.name}
+										</Button>
+									))}
+							</div>
+						)}
+
 						<div className="relative">
 							<Input
-								placeholder="Ask or build anything"
+								placeholder={
+									selectedRepo
+										? `What do you want to build with ${selectedRepo.name}?`
+										: "Select a repository to get started"
+								}
+								value={promptInput}
+								onChange={(e) => setPromptInput(e.target.value)}
+								onKeyDown={handleKeyDown}
+								disabled={!selectedRepo || createMutation.isPending}
 								className="h-12 px-4 pr-24 text-base rounded-xl border-border/50 shadow-sm"
 							/>
 							<div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
 								<Button variant="ghost" size="icon" className="size-8">
 									<LuPaperclip className="size-4 text-muted-foreground" />
 								</Button>
-								<Button size="icon" className="size-8 rounded-lg" asChild>
-									<Link href="/cloud/new">
+								<Button
+									size="icon"
+									className="size-8 rounded-lg"
+									disabled={
+										!selectedRepo || !promptInput.trim() || createMutation.isPending
+									}
+									onClick={handleQuickCreate}
+								>
+									{createMutation.isPending ? (
+										<LuLoader className="size-4 animate-spin" />
+									) : (
 										<LuSend className="size-4" />
-									</Link>
+									)}
 								</Button>
 							</div>
 						</div>
 
 						{/* Model selector row */}
 						<div className="flex items-center justify-between">
-							<button className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+							<button
+								type="button"
+								className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+							>
 								<SupersetLogo className="h-3" />
 								<span>Cloud</span>
 								<LuChevronDown className="size-3" />
@@ -195,6 +387,25 @@ export function CloudHomePage({ workspaces }: CloudHomePageProps) {
 								claude sonnet 4
 							</div>
 						</div>
+
+						{/* Show connect GitHub prompt if no installation */}
+						{!hasGitHubInstallation && (
+							<div className="text-center pt-4">
+								<p className="text-sm text-muted-foreground mb-2">
+									Connect GitHub to create cloud sessions with your repositories
+								</p>
+								<Button
+									variant="outline"
+									size="sm"
+									onClick={() => {
+										window.location.href = `${env.NEXT_PUBLIC_API_URL}/api/github/install?organizationId=${organizationId}`;
+									}}
+								>
+									<LuGithub className="size-4 mr-2" />
+									Connect GitHub
+								</Button>
+							</div>
+						)}
 					</div>
 
 					{/* Stats cards */}

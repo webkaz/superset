@@ -14,8 +14,26 @@ export default async function CloudPage() {
 		redirect("/sign-in");
 	}
 
-	const trpc = await api();
-	const workspaces = await trpc.cloudWorkspace.list.query();
+	const organizationId = session.session.activeOrganizationId;
+	if (!organizationId) {
+		redirect("/");
+	}
 
-	return <CloudHomePage workspaces={workspaces} />;
+	const trpc = await api();
+
+	const [workspaces, githubInstallation, githubRepositories] =
+		await Promise.all([
+			trpc.cloudWorkspace.list.query(),
+			trpc.integration.github.getInstallation.query({ organizationId }),
+			trpc.integration.github.listRepositories.query({ organizationId }),
+		]);
+
+	return (
+		<CloudHomePage
+			organizationId={organizationId}
+			workspaces={workspaces}
+			hasGitHubInstallation={!!githubInstallation && !githubInstallation.suspended}
+			githubRepositories={githubRepositories}
+		/>
+	);
 }

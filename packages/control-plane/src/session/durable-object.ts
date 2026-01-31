@@ -31,9 +31,12 @@ export class SessionDO extends DurableObject<Env> {
 	private sql: SqlStorage;
 	private clients: Map<WebSocket, ClientInfo>;
 	private sandboxWs: WebSocket | null = null;
+	private sandboxInfo: { sandboxId: string; authenticatedAt: number } | null =
+		null;
 	private pendingMessages: Map<string, { content: string; createdAt: number }> =
 		new Map();
 	private initialized = false;
+	private isSpawningSandbox = false;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -318,6 +321,10 @@ export class SessionDO extends DurableObject<Env> {
 				case "ping":
 					this.safeSend(ws, { type: "pong" });
 					break;
+
+				case "typing":
+					await this.handleTyping();
+					break;
 			}
 		} catch (error) {
 			const errorMsg = error instanceof Error ? error.message : String(error);
@@ -564,6 +571,100 @@ export class SessionDO extends DurableObject<Env> {
 		console.log("[SessionDO] Stop requested by client");
 		if (!this.sendToSandbox({ type: "stop" })) {
 			this.safeSend(ws, { type: "error", message: "Sandbox not connected" });
+		}
+	}
+
+	/**
+	 * Handle typing indicator from client - triggers sandbox pre-warming.
+	 * This allows the sandbox to start before the user submits their prompt.
+	 */
+	private async handleTyping(): Promise<void> {
+		// Get current session state
+		const rows = this.sql.exec("SELECT * FROM session LIMIT 1").toArray();
+		if (rows.length === 0) return;
+
+		const session = rows[0] as unknown as SessionRow;
+
+		// If sandbox is already running/ready/warming, or we're already spawning, skip
+		if (
+			session.sandbox_status === "ready" ||
+			session.sandbox_status === "running" ||
+			session.sandbox_status === "warming" ||
+			session.sandbox_status === "syncing" ||
+			this.isSpawningSandbox
+		) {
+			return;
+		}
+
+		// Check if sandbox is connected
+		const sandboxWs = this.findSandboxWebSocket();
+		if (sandboxWs) {
+			return; // Sandbox is already connected
+		}
+
+		console.log("[SessionDO] Typing detected, pre-warming sandbox");
+		this.isSpawningSandbox = true;
+
+		// Update status to warming
+		this.sql.exec(
+			"UPDATE session SET sandbox_status = 'warming', updated_at = ? WHERE id = ?",
+			Date.now(),
+			session.id,
+		);
+
+		// Broadcast state update
+		const state = this.getSessionState();
+		if (state) {
+			this.broadcast({ type: "state_update", state });
+		}
+
+		// Trigger sandbox spawn via Modal API
+		try {
+			const spawnUrl = `https://${this.env.MODAL_WORKSPACE}--superset-cloud-api-spawn-sandbox.modal.run`;
+			const response = await fetch(spawnUrl, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					sessionId: session.id,
+					controlPlaneUrl: this.env.CONTROL_PLANE_URL,
+					repoOwner: session.repo_owner,
+					repoName: session.repo_name,
+					branch: session.branch,
+					baseBranch: session.base_branch,
+					model: session.model,
+				}),
+			});
+
+			if (!response.ok) {
+				console.error(
+					"[SessionDO] Failed to spawn sandbox on typing:",
+					await response.text(),
+				);
+				// Reset status on failure
+				this.sql.exec(
+					"UPDATE session SET sandbox_status = 'stopped', updated_at = ? WHERE id = ?",
+					Date.now(),
+					session.id,
+				);
+				const updatedState = this.getSessionState();
+				if (updatedState) {
+					this.broadcast({ type: "state_update", state: updatedState });
+				}
+			} else {
+				console.log("[SessionDO] Sandbox spawn initiated from typing");
+			}
+		} catch (error) {
+			console.error("[SessionDO] Error spawning sandbox on typing:", error);
+			// Reset status on error
+			this.sql.exec(
+				"UPDATE session SET sandbox_status = 'stopped', updated_at = ? WHERE id = ?",
+				Date.now(),
+				session.id,
+			);
+		} finally {
+			this.isSpawningSandbox = false;
 		}
 	}
 

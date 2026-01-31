@@ -1,6 +1,8 @@
 # Cloud Workspaces Integration Plan
 
-## Status: Sprint 1 Complete
+> **⚠️ SUPERSEDED**: This plan has been consolidated into `20260131-cloud-parity-plan.md`. See that file for the current roadmap.
+
+## Status: Sprint 4 Complete - Consolidated into Parity Plan
 
 ## Completed
 
@@ -112,26 +114,71 @@ Reference: `temp_modal_vibe/background-agents` - ColeMurray's Open-Inspect
 - [x] Repository selector shows GitHub repos with private indicator (lock icon)
 - [x] Auto-set base branch to repo's default branch on selection
 
-**Flow to implement:**
-1. [ ] Check existing GitHub integration in `packages/trpc/src/router/github/`
-2. [ ] Add "Connect Repository" button in `/cloud/new` page
-3. [ ] Dialog/sheet to show user's GitHub repos
-4. [ ] Fetch repos via GitHub API (user token from auth)
-5. [ ] Save selected repos to organization via `repository.create`
+### Phase 11: Quick Repo Selector on Home Page ✅
+- [x] Repository dropdown above the prompt input on `/cloud` home page
+- [x] Flow: select repo → type prompt → create session → redirect
+- [x] Recent repos as quick-select chips
+- [x] GitHub connect CTA when no installation
 
-### Phase 11: Quick Repo Selector on Home Page (Priority: Medium)
-Add repo dropdown to home page for quick session creation.
+## Completed - Sprint 4 (Layout & Polish)
 
-- [ ] Repository dropdown above/beside the prompt input
-- [ ] Flow: select repo → type prompt → create session → redirect → send prompt
-- [ ] Recent repos as quick-select chips
+### Phase 15: Session Lifecycle ✅
+- [x] Inline session title editing (click to edit, Enter to save, Escape to cancel)
+- [x] Session archiving via dropdown menu
+- [x] tRPC mutations for update/archive already existed
+
+### Phase 16: Keyboard Shortcuts ✅
+- [x] `⌘+Enter` to send prompt (global)
+- [x] `Escape` to stop execution
+- [x] `⌘+K` to focus input
+- [x] `⌘+\` to toggle sidebar
+
+## Pending
+
+### Phase 17: Sandbox Warm-up Optimization (Priority: High)
+Reference: Ramp's background-agents approach - warm sandbox while user types
+
+**Warm-up During Typing:**
+- [ ] Add `typing` message type to WebSocket protocol
+- [ ] Send typing indicator when user starts typing in prompt input (debounced)
+- [ ] Control plane spawns sandbox on first typing event if not already running
+- [ ] Broadcast `sandbox_warming` status to show UI feedback
+
+**Implementation in CloudWorkspaceContent.tsx:**
+```typescript
+// Debounced typing handler
+const handleInputChange = (value: string) => {
+  setPromptInput(value);
+  if (value.length > 0 && !isSandboxReady && !isSpawning) {
+    sendTypingIndicator(); // Triggers early spawn
+  }
+};
+```
+
+**Control Plane Changes (durable-object.ts):**
+- [ ] Add `handleTyping()` method to spawn sandbox proactively
+- [ ] Avoid duplicate spawns with `isSpawningSandbox` flag
+
+### Phase 18: Snapshot/Restore for Fast Startup (Priority: Medium)
+Reference: Ramp rebuilds repo images every 30 minutes
+
+- [ ] Modal scheduler to create periodic repo snapshots
+- [ ] Store snapshot IDs in database per repository
+- [ ] Restore from snapshot instead of full git clone
+- [ ] Only sync changes since snapshot (faster startup)
+
+### Phase 19: Home Page Quick Start (Priority: Medium)
+Improve the flow from home page to active session:
+
+- [ ] Pre-warm sandbox when repo is selected (before prompt submission)
+- [ ] Show sandbox status indicator on home page
+- [ ] Optimistic redirect - navigate immediately, show syncing state in session view
+- [ ] Initial prompt auto-sent after sandbox ready
 
 ### Phase 12: Branch Management (Priority: Low)
 - [ ] Fetch branches via GitHub API
 - [ ] Branch selector in new session form
 - [ ] Show repo's default branch
-
-## Pending - Sprint 4 (Layout & Polish)
 
 ### Phase 13: Right Sidebar (Session Details)
 - [ ] Session metadata: model, created time, duration
@@ -147,17 +194,6 @@ Reference: background-agents stores PRs as artifacts
 - [ ] Display PR badge in sidebar
 - [ ] Link to GitHub PR
 - [ ] Screenshot artifacts (future)
-
-### Phase 15: Session Lifecycle
-- [ ] Delete session
-- [ ] Session title editing (inline)
-- [ ] Session archiving
-
-### Phase 16: Keyboard Shortcuts
-- [ ] `⌘+Enter` to send prompt
-- [ ] `Escape` to stop execution
-- [ ] `⌘+K` to focus input
-- [ ] `⌘+\` to toggle sidebar
 
 ## Test Results
 - [x] Control plane health check: Working
@@ -177,6 +213,21 @@ Reference: background-agents stores PRs as artifacts
 ```
 NEXT_PUBLIC_CONTROL_PLANE_URL=https://superset-control-plane.avi-6ac.workers.dev
 ```
+
+## Pending - Developer Experience
+
+### Local Development with GitHub OAuth
+GitHub OAuth callbacks require a public URL. Use ngrok with a static domain for local development.
+
+- [ ] Document ngrok setup in README/CONTRIBUTING
+- [ ] Reserve static ngrok domain (e.g., `superset-dev.ngrok-free.app`)
+- [ ] Add `.env.example` entry for ngrok URL
+
+**Setup steps:**
+1. Sign up at ngrok.com, claim free static domain in Dashboard → Domains
+2. Run: `ngrok http 3001 --domain=your-domain.ngrok-free.app`
+3. Set in `.env`: `NEXT_PUBLIC_API_URL=https://your-domain.ngrok-free.app`
+4. Click "Connect GitHub" from localhost:3000 - callbacks will work
 
 ## Commands
 ```bash
