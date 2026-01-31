@@ -1,5 +1,6 @@
 import { useParams } from "@tanstack/react-router";
 import { electronTrpc } from "renderer/lib/electron-trpc";
+import { FeedbackButton } from "./components/FeedbackButton";
 import { OpenInMenuButton } from "./components/OpenInMenuButton";
 import { OrganizationDropdown } from "./components/OrganizationDropdown";
 import { SidebarToggle } from "./components/SidebarToggle";
@@ -24,6 +25,7 @@ export function TopBar() {
 				}}
 			>
 				<SidebarToggle />
+				<FeedbackButton />
 			</div>
 
 			<div className="flex-1" />
