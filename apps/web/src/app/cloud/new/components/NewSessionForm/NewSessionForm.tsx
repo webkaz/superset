@@ -105,7 +105,8 @@ export function NewSessionForm({
 	);
 
 	const isCreating = createMutation.isPending;
-	const isGitHubConnected = !!githubInstallation && !githubInstallation.suspended;
+	const hasGitHubInstallation = !!githubInstallation;
+	const isGitHubSuspended = githubInstallation?.suspended ?? false;
 
 	const selectedRepo = githubRepositories.find((r) => r.id === selectedRepoId);
 
@@ -132,7 +133,7 @@ export function NewSessionForm({
 	};
 
 	// Show GitHub connection prompt if not connected
-	if (!isGitHubConnected) {
+	if (!hasGitHubInstallation || isGitHubSuspended) {
 		return (
 			<div className="min-h-screen bg-background p-8">
 				<div className="max-w-xl mx-auto">
@@ -155,7 +156,7 @@ export function NewSessionForm({
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-4">
-							{githubInstallation?.suspended && (
+							{isGitHubSuspended && (
 								<div className="p-3 rounded-md bg-yellow-500/10 text-yellow-600 dark:text-yellow-400 text-sm">
 									Your GitHub installation is suspended. Please reauthorize to
 									continue.
@@ -163,14 +164,13 @@ export function NewSessionForm({
 							)}
 							<p className="text-sm text-muted-foreground">
 								Cloud sessions need access to your GitHub repositories to clone
-								code and create branches. Click below to install the Superset
-								GitHub App.
+								code and create branches.
 							</p>
 							<div className="flex gap-3">
 								<Button asChild>
 									<a href={`/api/github/install?organizationId=${organizationId}`}>
 										<LuGithub className="size-4 mr-2" />
-										Install GitHub App
+										Connect GitHub
 									</a>
 								</Button>
 								<Button variant="outline" asChild>
@@ -232,9 +232,17 @@ export function NewSessionForm({
 									</SelectTrigger>
 									<SelectContent>
 										{githubRepositories.length === 0 ? (
-											<div className="p-2 text-sm text-muted-foreground">
-												No repositories found. Make sure you've granted access to
-												repositories in your GitHub App settings.
+											<div className="p-3 text-sm text-muted-foreground space-y-2">
+												<p>No repositories found.</p>
+												<a
+													href={`https://github.com/settings/installations`}
+													target="_blank"
+													rel="noopener noreferrer"
+													className="text-primary hover:underline inline-flex items-center gap-1"
+												>
+													Configure repository access
+													<LuGithub className="size-3" />
+												</a>
 											</div>
 										) : (
 											githubRepositories.map((repo) => (
