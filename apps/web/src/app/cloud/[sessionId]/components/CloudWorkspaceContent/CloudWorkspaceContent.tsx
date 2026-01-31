@@ -8,6 +8,8 @@ import { ScrollArea } from "@superset/ui/scroll-area";
 import { cn } from "@superset/ui/utils";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
 	LuCircle,
 	LuGitBranch,
@@ -197,8 +199,12 @@ export function CloudWorkspaceContent({
 	const {
 		isConnected,
 		isConnecting,
+		isReconnecting,
+		reconnectAttempt,
 		isLoadingHistory,
 		isSpawning,
+		isProcessing,
+		isSandboxReady,
 		error,
 		sessionState,
 		events,
@@ -208,6 +214,9 @@ export function CloudWorkspaceContent({
 		controlPlaneUrl: CONTROL_PLANE_URL,
 		sessionId: workspace.sessionId,
 	});
+
+	const isExecuting = isProcessing || sessionState?.sandboxStatus === "running";
+	const canSendPrompt = isConnected && isSandboxReady && !isProcessing;
 
 	// Auto-scroll to bottom when new events arrive
 	useEffect(() => {
@@ -222,12 +231,12 @@ export function CloudWorkspaceContent({
 	}, []);
 
 	const handleSendPrompt = useCallback(() => {
-		if (promptInput.trim() && isConnected) {
+		if (promptInput.trim() && canSendPrompt) {
 			sendPrompt(promptInput.trim());
 			setPromptInput("");
 			inputRef.current?.focus();
 		}
-	}, [promptInput, isConnected, sendPrompt]);
+	}, [promptInput, canSendPrompt, sendPrompt]);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -238,10 +247,6 @@ export function CloudWorkspaceContent({
 		},
 		[handleSendPrompt],
 	);
-
-	const isExecuting =
-		sessionState?.status === "executing" ||
-		workspace.sandboxStatus === "running";
 
 	const groupedEvents = useMemo(() => groupEvents(events), [events]);
 
@@ -373,18 +378,20 @@ export function CloudWorkspaceContent({
 							variant={isConnected ? "default" : "secondary"}
 							className="gap-1"
 						>
-							{isConnecting ? (
+							{isConnecting || isReconnecting ? (
 								<LuLoader className="size-3 animate-spin" />
 							) : isConnected ? (
 								<LuWifi className="size-3" />
 							) : (
 								<LuWifiOff className="size-3" />
 							)}
-							{isConnecting
-								? "Connecting..."
-								: isConnected
-									? "Connected"
-									: "Disconnected"}
+							{isReconnecting
+								? `Reconnecting (${reconnectAttempt}/5)...`
+								: isConnecting
+									? "Connecting..."
+									: isConnected
+										? "Connected"
+										: "Disconnected"}
 						</Badge>
 						<Badge variant="outline">{workspace.status}</Badge>
 						{(sessionState?.sandboxStatus || workspace.sandboxStatus || isSpawning) && (
@@ -479,6 +486,15 @@ export function CloudWorkspaceContent({
 									<EventItem key={`event-${index}-${grouped.event.id}`} event={grouped.event} />
 								);
 							})}
+							{/* Processing indicator */}
+							{isProcessing && (
+								<div className="flex items-center gap-2 py-2 px-3 rounded-lg bg-muted/50 animate-pulse">
+									<LuLoader className="size-4 animate-spin text-muted-foreground" />
+									<span className="text-sm text-muted-foreground">
+										Claude is working...
+									</span>
+								</div>
+							)}
 						</div>
 					</ScrollArea>
 
@@ -491,11 +507,19 @@ export function CloudWorkspaceContent({
 								onChange={(e) => setPromptInput(e.target.value)}
 								onKeyDown={handleKeyDown}
 								placeholder={
-									isConnected
-										? "Send a prompt to Claude..."
-										: "Connecting to cloud workspace..."
+									!isConnected
+										? "Connecting to cloud workspace..."
+										: isSpawning
+											? "Starting sandbox..."
+											: sessionState?.sandboxStatus === "syncing"
+												? "Syncing repository..."
+												: !isSandboxReady
+													? "Waiting for sandbox..."
+													: isProcessing
+														? "Processing..."
+														: "Send a prompt to Claude..."
 								}
-								disabled={!isConnected}
+								disabled={!canSendPrompt}
 								className="flex-1"
 							/>
 							{isExecuting ? (
@@ -510,9 +534,13 @@ export function CloudWorkspaceContent({
 							) : (
 								<Button
 									onClick={handleSendPrompt}
-									disabled={!isConnected || !promptInput.trim()}
+									disabled={!canSendPrompt || !promptInput.trim()}
 								>
-									<LuSend className="mr-2 size-4" />
+									{!isSandboxReady && isConnected ? (
+										<LuLoader className="mr-2 size-4 animate-spin" />
+									) : (
+										<LuSend className="mr-2 size-4" />
+									)}
 									Send
 								</Button>
 							)}
@@ -669,10 +697,37 @@ function UserMessage({ content }: { content: string }) {
 function AssistantMessage({ text }: { text: string }) {
 	return (
 		<div className="rounded-lg border bg-card p-3 text-card-foreground">
-			<div className="prose prose-sm dark:prose-invert max-w-none">
-				<pre className="font-mono text-sm whitespace-pre-wrap bg-transparent p-0 m-0 overflow-x-auto">
+			<div className="prose prose-sm dark:prose-invert max-w-none prose-pre:bg-muted prose-pre:text-foreground prose-code:text-foreground prose-code:before:content-none prose-code:after:content-none">
+				<ReactMarkdown
+					remarkPlugins={[remarkGfm]}
+					components={{
+						pre: ({ children }) => (
+							<pre className="overflow-x-auto rounded-md bg-muted p-3 text-sm">
+								{children}
+							</pre>
+						),
+						code: ({ className, children, ...props }) => {
+							const isInline = !className;
+							if (isInline) {
+								return (
+									<code
+										className="rounded bg-muted px-1.5 py-0.5 text-sm font-mono"
+										{...props}
+									>
+										{children}
+									</code>
+								);
+							}
+							return (
+								<code className="font-mono text-sm" {...props}>
+									{children}
+								</code>
+							);
+						},
+					}}
+				>
 					{text}
-				</pre>
+				</ReactMarkdown>
 			</div>
 		</div>
 	);

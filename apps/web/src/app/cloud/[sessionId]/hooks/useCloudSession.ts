@@ -58,8 +58,12 @@ interface UseCloudSessionOptions {
 interface UseCloudSessionReturn {
 	isConnected: boolean;
 	isConnecting: boolean;
+	isReconnecting: boolean;
+	reconnectAttempt: number;
 	isLoadingHistory: boolean;
 	isSpawning: boolean;
+	isProcessing: boolean;
+	isSandboxReady: boolean;
 	error: string | null;
 	sessionState: CloudSessionState | null;
 	events: CloudEvent[];
@@ -77,13 +81,21 @@ export function useCloudSession({
 }: UseCloudSessionOptions): UseCloudSessionReturn {
 	const [isConnected, setIsConnected] = useState(false);
 	const [isConnecting, setIsConnecting] = useState(false);
+	const [isReconnecting, setIsReconnecting] = useState(false);
+	const [reconnectAttempt, setReconnectAttempt] = useState(0);
 	const [isLoadingHistory, setIsLoadingHistory] = useState(true);
 	const [isSpawning, setIsSpawning] = useState(false);
+	const [isProcessing, setIsProcessing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [sessionState, setSessionState] = useState<CloudSessionState | null>(
 		null,
 	);
 	const [events, setEvents] = useState<CloudEvent[]>([]);
+
+	// Compute if sandbox is ready for prompts
+	const isSandboxReady =
+		sessionState?.sandboxStatus === "ready" ||
+		sessionState?.sandboxStatus === "running";
 
 	const wsRef = useRef<WebSocket | null>(null);
 	const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -143,9 +155,15 @@ export function useCloudSession({
 
 				case "event":
 					if (message.event) {
-						setEvents((prev) => [...prev, message.event as CloudEvent]);
+						const event = message.event as CloudEvent;
+						setEvents((prev) => [...prev, event]);
 						// Mark history as loaded once we receive live events
 						setIsLoadingHistory(false);
+
+						// Track processing state based on event type
+						if (event.type === "execution_complete") {
+							setIsProcessing(false);
+						}
 					}
 					break;
 
@@ -209,6 +227,8 @@ export function useCloudSession({
 				}
 
 				setIsConnecting(false);
+				setIsReconnecting(false);
+				setReconnectAttempt(0);
 				setIsConnected(true);
 				reconnectAttempts.current = 0;
 
@@ -244,16 +264,23 @@ export function useCloudSession({
 
 				// Don't reconnect if we're cleaning up
 				if (isCleaningUp.current) {
+					setIsReconnecting(false);
+					setReconnectAttempt(0);
 					return;
 				}
 
 				// Attempt reconnect
 				if (reconnectAttempts.current < maxReconnectAttempts) {
 					reconnectAttempts.current++;
+					setIsReconnecting(true);
+					setReconnectAttempt(reconnectAttempts.current);
 					const delay = 1000 * 2 ** (reconnectAttempts.current - 1);
 					reconnectTimeoutRef.current = setTimeout(() => {
 						connectInternal();
 					}, delay);
+				} else {
+					setIsReconnecting(false);
+					setError("Connection lost. Please refresh the page.");
 				}
 			};
 
@@ -289,26 +316,32 @@ export function useCloudSession({
 		disconnectInternal();
 	}, [disconnectInternal]);
 
-	const sendPrompt = useCallback((content: string) => {
-		if (wsRef.current?.readyState === WebSocket.OPEN) {
-			// Add user message to events immediately for display
-			const userMessageEvent: CloudEvent = {
-				id: `user-${Date.now()}`,
-				type: "user_message",
-				timestamp: Date.now(),
-				data: { content },
-			};
-			setEvents((prev) => [...prev, userMessageEvent]);
+	const sendPrompt = useCallback(
+		(content: string) => {
+			if (wsRef.current?.readyState === WebSocket.OPEN) {
+				// Add user message to events immediately for display
+				const userMessageEvent: CloudEvent = {
+					id: `user-${Date.now()}`,
+					type: "user_message",
+					timestamp: Date.now(),
+					data: { content },
+				};
+				setEvents((prev) => [...prev, userMessageEvent]);
 
-			wsRef.current.send(
-				JSON.stringify({
-					type: "prompt",
-					content,
-					authorId: "web-user",
-				}),
-			);
-		}
-	}, []);
+				// Set processing state
+				setIsProcessing(true);
+
+				wsRef.current.send(
+					JSON.stringify({
+						type: "prompt",
+						content,
+						authorId: "web-user",
+					}),
+				);
+			}
+		},
+		[],
+	);
 
 	const sendStop = useCallback(() => {
 		if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -387,8 +420,12 @@ export function useCloudSession({
 	return {
 		isConnected,
 		isConnecting,
+		isReconnecting,
+		reconnectAttempt,
 		isLoadingHistory,
 		isSpawning,
+		isProcessing,
+		isSandboxReady,
 		error,
 		sessionState,
 		events,

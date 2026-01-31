@@ -74,88 +74,36 @@ User → Web App → Control Plane (WebSocket) → Sandbox (WebSocket) → Claud
 - `apps/web/src/app/cloud/[sessionId]/hooks/useCloudSession.ts` - WebSocket hook with history
 - `apps/web/src/app/cloud/[sessionId]/components/CloudWorkspaceContent/` - Session UI
 
-## Pending - Sprint 2 (Chat Polish)
+## Completed - Sprint 2 (Chat Polish)
 
 Reference: `temp_modal_vibe/background-agents` - ColeMurray's Open-Inspect
 
-### Phase 5: Tool Call Display (Priority: High) ⬅️ START HERE
-Currently tool calls render as raw JSON. Need collapsible UI with icons.
+### Phase 5: Tool Call Display ✅
+- [x] `lib/tool-formatters.ts` - Format tool calls with summary + icon
+- [x] `ToolCallItem/` - Collapsible item with chevron + icon + summary + time
+- [x] `ToolCallGroup/` - Groups consecutive same-type tool calls
+- [x] `ToolIcon/` - SVG icons for each tool type
 
-**Reference files:**
-- `background-agents/packages/web/src/lib/tool-formatters.ts`
-- `background-agents/packages/web/src/components/tool-call-item.tsx`
-- `background-agents/packages/web/src/components/tool-call-group.tsx`
+### Phase 6-8: Processing & Connection States ✅
+- [x] `isProcessing` state - tracks when prompt being executed
+- [x] `isSandboxReady` computed from sandboxStatus
+- [x] Auto-spawn sandbox when status is "stopped"
+- [x] Disable input when sandbox not ready (syncing/spawning)
+- [x] Dynamic placeholder text based on state
+- [x] Processing indicator ("Claude is working...")
+- [x] Sandbox status badge with spawning state
 
-**Components to create in `apps/web/src/app/cloud/[sessionId]/components/`:**
-- [ ] `tool-formatters.ts` - Format tool calls with summary + icon
-  ```typescript
-  interface FormattedToolCall {
-    toolName: string;
-    summary: string;  // e.g., "filename.tsx (42 lines)"
-    icon: string;     // "file" | "pencil" | "terminal" | "search" | "folder"
-    getDetails: () => { args?: Record<string, unknown>; output?: string };
-  }
-  ```
-  - Read: `filename.tsx (42 lines)`
-  - Edit/Write: `filename.tsx`
-  - Bash: `npm install...` (truncate to 50 chars)
-  - Grep: `"pattern" (5 matches)`
-  - Glob: `*.tsx (12 files)`
-  - Task: `description` (truncate to 40 chars)
+### Phase 7: Markdown Rendering ✅
+- [x] `react-markdown` with `remark-gfm`
+- [x] Custom code block styling
+- [x] Inline code styling
 
-- [ ] `ToolCallItem/` - Collapsible item with chevron + icon + summary + time
-- [ ] `ToolCallGroup/` - Groups consecutive same-type tool calls
-- [ ] `ToolIcon/` - SVG icons for each tool type
+### Phase 9: WebSocket Hook Improvements ✅
+- [x] `isReconnecting` state
+- [x] `reconnectAttempt` counter (shown as "Reconnecting (2/5)...")
+- [x] Error message when max reconnects exceeded
 
-**UI pattern:**
-```
-▶ Read filename.tsx (42 lines)        10:32
-▶ Edit package.json                    10:32
-▼ Bash npm install                     10:33
-  └─ Arguments: { command: "npm install" }
-  └─ Output: [truncated output]
-```
-
-### Phase 6: Token Streaming Improvements (Priority: High)
-Background-agents pattern: Accumulate tokens, display only on execution_complete.
-
-**In `useCloudSession.ts`:**
-- [ ] Add `pendingTextRef` to accumulate streaming tokens
-- [ ] On `token` event: Store in ref, don't render yet
-- [ ] On `execution_complete`: Flush pending text to events, then add complete event
-- [ ] On `stop`: Preserve partial content from pendingTextRef
-
-### Phase 7: Markdown Rendering (Priority: Medium)
-Currently using `<pre>` for all assistant text.
-
-- [ ] Use `react-markdown` with `remark-gfm`
-- [ ] Code block syntax highlighting (shiki or rehype-highlight)
-- [ ] Copy button for code blocks
-- [ ] Support: headings, lists, tables, blockquotes, inline code
-
-### Phase 8: Processing & Connection States (Priority: Medium)
-Reference: `background-agents/packages/web/src/hooks/use-session-socket.ts`
-
-**States to track in hook:**
-- [ ] `isProcessing` - Show when prompt being executed
-- [ ] `sandboxStatus` - warming/spawning/ready/running/failed
-- [ ] Reconnect attempt counter with display
-- [ ] Auth error handling (close codes 4001, 4002)
-
-**UI feedback:**
-- [ ] Pulsing indicator when isProcessing
-- [ ] Sandbox status badge with colors (warming=yellow, ready=green, failed=red)
-- [ ] "Reconnecting (attempt 2/5)" message on disconnect
-- [ ] "Session expired" error with reconnect button
-
-### Phase 9: WebSocket Hook Improvements (Priority: Medium)
-Add background-agents patterns to `useCloudSession.ts`:
-
-- [ ] `sendTyping()` - Trigger sandbox warming on input focus
-- [ ] Better close code handling (4001=auth required, 4002=session expired)
-- [ ] `connectionError` state separate from general `error`
-- [ ] `reconnect()` function to manually trigger reconnection
-- [ ] Clear token on auth errors to force re-fetch
+## Pending - Sprint 2 (Remaining)
 
 ## Pending - Sprint 3 (GitHub Integration)
 
