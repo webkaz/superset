@@ -13,13 +13,13 @@ import { useRef, useState } from "react";
 import { FaDiscord } from "react-icons/fa6";
 import {
 	LuBookOpen,
+	LuCircleHelp,
 	LuGithub,
 	LuImagePlus,
 	LuLoader,
 	LuTrash2,
 	LuX,
 } from "react-icons/lu";
-import { MdOutlineFeedback } from "react-icons/md";
 import { apiTrpcClient } from "renderer/lib/api-trpc-client";
 import {
 	useAddFeedbackImage,
@@ -113,7 +113,7 @@ export function FeedbackButton() {
 						onClick={openModal}
 						className="no-drag flex items-center justify-center size-8 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
 					>
-						<MdOutlineFeedback className="size-4" />
+						<LuCircleHelp className="size-4" strokeWidth={1.5} />
 					</button>
 				</TooltipTrigger>
 				<TooltipContent side="bottom">Feedback</TooltipContent>
