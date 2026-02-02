@@ -12,10 +12,17 @@ import type {
 import useResizeObserver from "use-resize-observer";
 import { DeleteConfirmDialog } from "./components/DeleteConfirmDialog";
 import { FileTreeContextMenu } from "./components/FileTreeContextMenu";
+import { FileSearchResultNode } from "./components/FileSearchResultNode";
 import { FileTreeNode } from "./components/FileTreeNode";
 import { FileTreeToolbar } from "./components/FileTreeToolbar";
 import { NewItemInput } from "./components/NewItemInput";
-import { OVERSCAN_COUNT, ROW_HEIGHT, TREE_INDENT } from "./constants";
+import {
+	OVERSCAN_COUNT,
+	ROW_HEIGHT,
+	SEARCH_RESULT_ROW_HEIGHT,
+	TREE_INDENT,
+} from "./constants";
+import { useFileSearch } from "./hooks/useFileSearch";
 import { useFileTreeActions } from "./hooks/useFileTreeActions";
 import type { NewItemMode } from "./types";
 
@@ -31,6 +38,7 @@ export function FilesView() {
 	const { ref: containerRef, height: treeHeight = 400 } = useResizeObserver();
 
 	const {
+		expandedFolders,
 		searchTerm,
 		showHiddenFiles,
 		toggleFolder,
@@ -41,6 +49,10 @@ export function FilesView() {
 	} = useFileExplorerStore();
 
 	const currentSearchTerm = worktreePath ? searchTerm[worktreePath] || "" : "";
+	const currentExpandedFolders = useMemo(
+		() => new Set(worktreePath ? expandedFolders[worktreePath] || [] : []),
+		[worktreePath, expandedFolders],
+	);
 
 	const [childrenCache, setChildrenCache] = useState<
 		Record<string, DirectoryEntry[]>
@@ -71,8 +83,10 @@ export function FilesView() {
 					return { ...entry, children: undefined };
 				}
 
+				const isExpanded = currentExpandedFolders.has(entry.id);
 				const cachedChildren = childrenCache[entry.path];
-				if (cachedChildren) {
+
+				if (isExpanded && cachedChildren) {
 					return {
 						...entry,
 						children: entriesToNodes(cachedChildren),
@@ -82,7 +96,7 @@ export function FilesView() {
 				return { ...entry, children: null };
 			});
 		},
-		[childrenCache],
+		[childrenCache, currentExpandedFolders],
 	);
 
 	const treeData = useMemo((): FileTreeNodeType[] => {
@@ -140,6 +154,14 @@ export function FilesView() {
 			onRefresh: () => refetch(),
 		});
 
+	const { searchResults, isFetching: isSearchFetching, hasQuery } =
+		useFileSearch({
+			worktreePath,
+			searchTerm: currentSearchTerm,
+			includeHidden: showHiddenFiles,
+		});
+	const isSearching = hasQuery;
+
 	const addFileViewerPane = useTabsStore((s) => s.addFileViewerPane);
 
 	const [newItemMode, setNewItemMode] = useState<NewItemMode>(null);
@@ -186,12 +208,12 @@ export function FilesView() {
 
 	const handleRename = useCallback(
 		({ id, name }: { id: string; name: string }) => {
-			const node = treeData.find((n) => n.id === id);
+			const node = treeRef.current?.get(id)?.data;
 			if (node) {
 				rename(node.path, name);
 			}
 		},
-		[treeData, rename],
+		[rename],
 	);
 
 	const handleNewFile = useCallback((parentPath: string) => {
@@ -320,30 +342,54 @@ export function FilesView() {
 						/>
 					)}
 
-					<Tree<FileTreeNodeType>
-						ref={treeRef}
-						data={treeData}
-						width="100%"
-						height={treeHeight}
-						rowHeight={ROW_HEIGHT}
-						indent={TREE_INDENT}
-						overscanCount={OVERSCAN_COUNT}
-						idAccessor="id"
-						childrenAccessor="children"
-						openByDefault={false}
-						disableMultiSelection={false}
-						searchTerm={currentSearchTerm}
-						searchMatch={(node, term) =>
-							node.data.name.toLowerCase().includes(term.toLowerCase())
-						}
-						onActivate={handleActivate}
-						onSelect={handleSelect}
-						onToggle={handleToggle}
-						onRename={handleRename}
-						dndManager={dragDropManager}
-					>
-						{FileTreeNode}
-					</Tree>
+					{isSearching ? (
+						searchResults.length > 0 ? (
+							<Tree<FileTreeNodeType>
+								ref={treeRef}
+								data={searchResults}
+								width="100%"
+								height={treeHeight}
+								rowHeight={SEARCH_RESULT_ROW_HEIGHT}
+								indent={0}
+								overscanCount={OVERSCAN_COUNT}
+								idAccessor="id"
+								childrenAccessor="children"
+								openByDefault={false}
+								disableMultiSelection={false}
+								onActivate={handleActivate}
+								onSelect={handleSelect}
+								onRename={handleRename}
+								dndManager={dragDropManager}
+							>
+								{FileSearchResultNode}
+							</Tree>
+						) : (
+							<div className="flex-1 flex items-center justify-center text-muted-foreground text-sm p-4">
+								{isSearchFetching ? "Searching files..." : "No matching files"}
+							</div>
+						)
+					) : (
+						<Tree<FileTreeNodeType>
+							ref={treeRef}
+							data={treeData}
+							width="100%"
+							height={treeHeight}
+							rowHeight={ROW_HEIGHT}
+							indent={TREE_INDENT}
+							overscanCount={OVERSCAN_COUNT}
+							idAccessor="id"
+							childrenAccessor="children"
+							openByDefault={false}
+							disableMultiSelection={false}
+							onActivate={handleActivate}
+							onSelect={handleSelect}
+							onToggle={handleToggle}
+							onRename={handleRename}
+							dndManager={dragDropManager}
+						>
+							{FileTreeNode}
+						</Tree>
+					)}
 				</div>
 			</FileTreeContextMenu>
 
