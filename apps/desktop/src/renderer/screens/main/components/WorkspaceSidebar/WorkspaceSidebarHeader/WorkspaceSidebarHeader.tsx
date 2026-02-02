@@ -1,9 +1,10 @@
+import { FEATURE_FLAGS } from "@superset/shared/constants";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@superset/ui/tooltip";
 import { cn } from "@superset/ui/utils";
 import { useMatchRoute, useNavigate } from "@tanstack/react-router";
+import { useFeatureFlagEnabled } from "posthog-js/react";
 import { HiOutlineClipboardDocumentList } from "react-icons/hi2";
-import { LuLayers } from "react-icons/lu";
-import { LuMessageSquare } from "react-icons/lu";
+import { LuLayers, LuMessageSquare } from "react-icons/lu";
 import {
 	GATED_FEATURES,
 	usePaywall,
@@ -21,6 +22,7 @@ export function WorkspaceSidebarHeader({
 	const navigate = useNavigate();
 	const matchRoute = useMatchRoute();
 	const { gateFeature } = usePaywall();
+	const showChat = useFeatureFlagEnabled(FEATURE_FLAGS.AI_CHAT);
 
 	// Derive active state from route
 	const isWorkspacesListOpen = !!matchRoute({ to: "/workspaces" });
@@ -88,23 +90,28 @@ export function WorkspaceSidebarHeader({
 					<TooltipContent side="right">Tasks</TooltipContent>
 				</Tooltip>
 
-				<Tooltip delayDuration={300}>
-					<TooltipTrigger asChild>
-						<button
-							type="button"
-							onClick={handleChatClick}
-							className={cn(
-								"flex items-center justify-center size-8 rounded-md transition-colors",
-								isChatOpen
-									? "text-foreground bg-accent"
-									: "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-							)}
-						>
-							<LuMessageSquare className="size-4" strokeWidth={STROKE_WIDTH} />
-						</button>
-					</TooltipTrigger>
-					<TooltipContent side="right">Chat</TooltipContent>
-				</Tooltip>
+				{showChat && (
+					<Tooltip delayDuration={300}>
+						<TooltipTrigger asChild>
+							<button
+								type="button"
+								onClick={handleChatClick}
+								className={cn(
+									"flex items-center justify-center size-8 rounded-md transition-colors",
+									isChatOpen
+										? "text-foreground bg-accent"
+										: "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+								)}
+							>
+								<LuMessageSquare
+									className="size-4"
+									strokeWidth={STROKE_WIDTH}
+								/>
+							</button>
+						</TooltipTrigger>
+						<TooltipContent side="right">Chat</TooltipContent>
+					</Tooltip>
+				)}
 
 				<NewWorkspaceButton isCollapsed />
 			</div>
@@ -148,21 +155,23 @@ export function WorkspaceSidebarHeader({
 				<span className="text-sm font-medium flex-1 text-left">Tasks</span>
 			</button>
 
-			<button
-				type="button"
-				onClick={handleChatClick}
-				className={cn(
-					"flex items-center gap-2 px-2 py-1.5 w-full rounded-md transition-colors",
-					isChatOpen
-						? "text-foreground bg-accent"
-						: "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-				)}
-			>
-				<div className="flex items-center justify-center size-5">
-					<LuMessageSquare className="size-4" strokeWidth={STROKE_WIDTH} />
-				</div>
-				<span className="text-sm font-medium flex-1 text-left">Chat</span>
-			</button>
+			{showChat && (
+				<button
+					type="button"
+					onClick={handleChatClick}
+					className={cn(
+						"flex items-center gap-2 px-2 py-1.5 w-full rounded-md transition-colors",
+						isChatOpen
+							? "text-foreground bg-accent"
+							: "text-muted-foreground hover:text-foreground hover:bg-accent/50",
+					)}
+				>
+					<div className="flex items-center justify-center size-5">
+						<LuMessageSquare className="size-4" strokeWidth={STROKE_WIDTH} />
+					</div>
+					<span className="text-sm font-medium flex-1 text-left">Chat</span>
+				</button>
+			)}
 
 			<NewWorkspaceButton />
 		</div>
