@@ -57,4 +57,6 @@ export const FEATURE_FLAGS = {
 	GITHUB_INTEGRATION_ACCESS: "github-integration-access",
 	/** Gates access to AI chat (@superset.sh internal only). */
 	AI_CHAT: "ai-chat",
+	/** Gates access to Slack integration (internal only). */
+	SLACK_INTEGRATION_ACCESS: "slack-integration-access",
 } as const;

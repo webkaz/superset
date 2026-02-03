@@ -24,9 +24,8 @@ export function WorkspaceSidebarHeader({
 	const { gateFeature } = usePaywall();
 	const showChat = useFeatureFlagEnabled(FEATURE_FLAGS.AI_CHAT);
 
-	// Derive active state from route
 	const isWorkspacesListOpen = !!matchRoute({ to: "/workspaces" });
-	const isTasksOpen = !!matchRoute({ to: "/tasks" });
+	const isTasksOpen = !!matchRoute({ to: "/tasks", fuzzy: true });
 	const isChatOpen = !!matchRoute({ to: "/chats" });
 
 	const handleWorkspacesClick = () => {
