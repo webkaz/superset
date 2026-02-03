@@ -112,6 +112,9 @@ export function ProjectSettings({ projectId }: ProjectSettingsProps) {
 			utils.projects.get.invalidate({ id: projectId });
 			utils.workspaces.getAllGrouped.invalidate();
 		},
+		onError: (err) => {
+			console.error("[project-settings/setIcon] Failed to update icon:", err);
+		},
 	});
 
 	if (!project) {
