@@ -1,12 +1,22 @@
 """Git operations for sandbox environment."""
 
+import asyncio
 import os
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from .config import SandboxConfig, WORKSPACE_ROOT, GIT_CLONE_TIMEOUT_SECONDS
 from .events import EventEmitter
+
+
+class TokenResolution(NamedTuple):
+    """Result of GitHub token resolution."""
+
+    token: str
+    source: str
 
 
 class GitOperations:
@@ -160,3 +170,116 @@ class GitOperations:
         except Exception as e:
             self.emitter.emit_error(f"Push error: {str(e)}")
             return False
+
+    def resolve_github_token(
+        self,
+        fresh_token: str | None = None,
+        env_token_key: str = "GITHUB_APP_TOKEN",
+    ) -> TokenResolution:
+        """Resolve GitHub token with priority ordering.
+
+        Token priority:
+        1. Fresh app token from command (just-in-time from control plane)
+        2. Startup app token from env (may be expired for long sessions)
+        3. No auth (will fail for private repos)
+
+        Args:
+            fresh_token: Fresh token provided from command
+            env_token_key: Environment variable name for fallback token
+
+        Returns:
+            TokenResolution with token and source description for logging.
+        """
+        if fresh_token:
+            return TokenResolution(fresh_token, "fresh from command")
+        elif os.environ.get(env_token_key):
+            return TokenResolution(os.environ[env_token_key], "from env")
+        else:
+            return TokenResolution("", "none")
+
+    async def push_branch_async(
+        self,
+        branch_name: str,
+        github_token: str | None = None,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
+    ) -> dict:
+        """Push a specific branch to remote with authenticated URL.
+
+        This method is designed to be called from the bridge in response
+        to a push command from the control plane. It uses a fresh GitHub
+        token for authentication.
+
+        Args:
+            branch_name: Name of the branch to push
+            github_token: Fresh GitHub token for authentication
+            repo_owner: Repository owner (defaults to config)
+            repo_name: Repository name (defaults to config)
+
+        Returns:
+            dict with success status and optional error message
+        """
+        owner = repo_owner or self.config.repo_owner
+        name = repo_name or self.config.repo_name
+
+        token, token_source = self.resolve_github_token(github_token)
+        print(f"[git_ops] Pushing branch: {branch_name} to {owner}/{name} (token: {token_source})")
+
+        if not self.workspace_path.exists():
+            return {"success": False, "error": "No repository found"}
+
+        try:
+            refspec = f"HEAD:refs/heads/{branch_name}"
+
+            if not token or not owner or not name:
+                print("[git_ops] Push failed: missing GitHub token or repository info")
+                return {
+                    "success": False,
+                    "error": "Push failed - GitHub authentication token is required",
+                }
+
+            # Build authenticated push URL
+            push_url = f"https://x-access-token:{token}@github.com/{owner}/{name}.git"
+            print(f"[git_ops] Pushing HEAD to {branch_name} via authenticated URL")
+
+            # Use asyncio subprocess for non-blocking push
+            result = await asyncio.create_subprocess_exec(
+                "git",
+                "push",
+                push_url,
+                refspec,
+                "-f",
+                cwd=self.workspace_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            _stdout, stderr = await result.communicate()
+
+            if result.returncode != 0:
+                # Don't log stderr as it may contain the token
+                print("[git_ops] Push failed (see event for details)")
+                return {
+                    "success": False,
+                    "error": "Push failed - authentication may be required",
+                }
+            else:
+                print("[git_ops] Push successful")
+                self.emitter.emit_git_sync("pushed", {"branch": branch_name})
+                return {"success": True, "branch": branch_name}
+
+        except Exception as e:
+            print(f"[git_ops] Push error: {e}")
+            return {"success": False, "error": str(e)}
+
+    def push_branch(
+        self,
+        branch_name: str,
+        github_token: str | None = None,
+        repo_owner: str | None = None,
+        repo_name: str | None = None,
+    ) -> dict:
+        """Push a branch (sync wrapper for async implementation)."""
+        return asyncio.run(
+            self.push_branch_async(branch_name, github_token, repo_owner, repo_name)
+        )

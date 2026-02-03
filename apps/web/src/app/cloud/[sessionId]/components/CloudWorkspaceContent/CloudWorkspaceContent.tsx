@@ -12,7 +12,6 @@ import {
 } from "@superset/ui/alert-dialog";
 import { Badge } from "@superset/ui/badge";
 import { Button } from "@superset/ui/button";
-import { Card, CardContent } from "@superset/ui/card";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -22,10 +21,10 @@ import {
 } from "@superset/ui/dropdown-menu";
 import { Input } from "@superset/ui/input";
 import { ScrollArea } from "@superset/ui/scroll-area";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@superset/ui/sidebar";
 import { Textarea } from "@superset/ui/textarea";
 import { cn } from "@superset/ui/utils";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
+import { useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -40,10 +39,7 @@ import {
 	LuGitPullRequest,
 	LuGlobe,
 	LuLoader,
-	LuPanelLeftClose,
-	LuPanelLeftOpen,
 	LuPencil,
-	LuPlus,
 	LuSquare,
 	LuTerminal,
 	LuWifi,
@@ -55,6 +51,7 @@ import remarkGfm from "remark-gfm";
 
 import { env } from "@/env";
 import { useTRPC } from "@/trpc/react";
+import { CloudSidebar, type CloudWorkspace } from "../../../components/CloudSidebar";
 import {
 	type Artifact,
 	type CloudEvent,
@@ -160,65 +157,9 @@ function groupEvents(events: CloudEvent[]): GroupedEvent[] {
 	return result;
 }
 
-interface CloudWorkspace {
-	id: string;
-	sessionId: string;
-	title: string;
-	repoOwner: string;
-	repoName: string;
-	branch: string;
-	baseBranch: string;
-	status: string;
-	sandboxStatus: string | null;
-	model: string | null;
-	linearIssueKey: string | null;
-	prUrl: string | null;
-	prNumber: number | null;
-	createdAt: Date;
-	updatedAt: Date;
-}
-
 interface CloudWorkspaceContentProps {
 	workspace: CloudWorkspace;
 	workspaces: CloudWorkspace[];
-}
-
-function SupersetLogo({ className }: { className?: string }) {
-	return (
-		<svg
-			viewBox="0 0 392 64"
-			fill="none"
-			xmlns="http://www.w3.org/2000/svg"
-			aria-label="Superset"
-			className={className}
-		>
-			<path
-				d="M25.2727 -0.00017944H37.9091V12.6362H25.2727V-0.00017944ZM12.6364 -0.00017944H25.2727V12.6362H12.6364V-0.00017944ZM0 12.6362H12.6364V25.2725H0V12.6362ZM0 25.2725H12.6364V37.9089H0V25.2725ZM12.6364 25.2725H25.2727V37.9089H12.6364V25.2725ZM25.2727 25.2725H37.9091V37.9089H25.2727V25.2725ZM25.2727 37.9089H37.9091V50.5453H25.2727V37.9089ZM25.2727 50.5453H37.9091V63.1816H25.2727V50.5453ZM12.6364 50.5453H25.2727V63.1816H12.6364V50.5453ZM0 50.5453H12.6364V63.1816H0V50.5453ZM0 -0.00017944H12.6364V12.6362H0V-0.00017944ZM50.4961 -0.00017944H63.1325V12.6362H50.4961V-0.00017944ZM50.4961 12.6362H63.1325V25.2725H50.4961V12.6362ZM50.4961 25.2725H63.1325V37.9089H50.4961V25.2725ZM50.4961 37.9089H63.1325V50.5453H50.4961V37.9089ZM50.4961 50.5453H63.1325V63.1816H50.4961V50.5453ZM63.1325 50.5453H75.7688V63.1816H63.1325V50.5453ZM75.7688 50.5453H88.4052V63.1816H75.7688V50.5453ZM75.7688 37.9089H88.4052V50.5453H75.7688V37.9089ZM75.7688 25.2725H88.4052V37.9089H75.7688V25.2725ZM75.7688 12.6362H88.4052V25.2725H75.7688V12.6362ZM75.7688 -0.00017944H88.4052V12.6362H75.7688V-0.00017944ZM100.992 -0.00017944H113.629V12.6362H100.992V-0.00017944ZM100.992 12.6362H113.629V25.2725H100.992V12.6362ZM100.992 25.2725H113.629V37.9089H100.992V25.2725ZM100.992 37.9089H113.629V50.5453H100.992V37.9089ZM100.992 50.5453H113.629V63.1816H100.992V50.5453ZM113.629 -0.00017944H126.265V12.6362H113.629V-0.00017944ZM126.265 -0.00017944H138.901V12.6362H126.265V-0.00017944ZM126.265 12.6362H138.901V25.2725H126.265V12.6362ZM126.265 25.2725H138.901V37.9089H126.265V25.2725ZM113.629 25.2725H126.265V37.9089H113.629V25.2725ZM151.488 -0.00017944H164.125V12.6362H151.488V-0.00017944ZM151.488 12.6362H164.125V25.2725H151.488V12.6362ZM151.488 25.2725H164.125V37.9089H151.488V25.2725ZM151.488 37.9089H164.125V50.5453H151.488V37.9089ZM151.488 50.5453H164.125V63.1816H151.488V50.5453ZM164.125 -0.00017944H176.761V12.6362H164.125V-0.00017944ZM164.125 50.5453H176.761V63.1816H164.125V50.5453ZM164.125 25.2725H176.761V37.9089H164.125V25.2725ZM176.761 -0.00017944H189.397V12.6362H176.761V-0.00017944ZM176.761 50.5453H189.397V63.1816H176.761V50.5453ZM201.984 50.5453H214.621V63.1816H201.984V50.5453ZM201.984 37.9089H214.621V50.5453H201.984V37.9089ZM201.984 25.2725H214.621V37.9089H201.984V25.2725ZM201.984 12.6362H214.621V25.2725H201.984V12.6362ZM201.984 -0.00017944H214.621V12.6362H201.984V-0.00017944ZM214.621 -0.00017944H227.257V12.6362H214.621V-0.00017944ZM227.257 -0.00017944H239.893V12.6362H227.257V-0.00017944ZM227.257 12.6362H239.893V25.2725H227.257V12.6362ZM214.621 25.2725H227.257V37.9089H214.621V25.2725ZM227.257 37.9089H239.893V50.5453H227.257V37.9089ZM227.257 50.5453H239.893V63.1816H227.257V50.5453ZM277.753 -0.00017944H290.39V12.6362H277.753V-0.00017944ZM265.117 -0.00017944H277.753V12.6362H265.117V-0.00017944ZM252.48 12.6362H265.117V25.2725H252.48V12.6362ZM252.48 25.2725H265.117V37.9089H252.48V25.2725ZM265.117 25.2725H277.753V37.9089H265.117V25.2725ZM277.753 25.2725H290.39V37.9089H277.753V25.2725ZM277.753 37.9089H290.39V50.5453H277.753V37.9089ZM277.753 50.5453H290.39V63.1816H277.753V50.5453ZM265.117 50.5453H277.753V63.1816H265.117V50.5453ZM252.48 50.5453H265.117V63.1816H252.48V50.5453ZM252.48 -0.00017944H265.117V12.6362H252.48V-0.00017944ZM302.977 -0.00017944H315.613V12.6362H302.977V-0.00017944ZM302.977 12.6362H315.613V25.2725H302.977V12.6362ZM302.977 25.2725H315.613V37.9089H302.977V25.2725ZM302.977 37.9089H315.613V50.5453H302.977V37.9089ZM302.977 50.5453H315.613V63.1816H302.977V50.5453ZM315.613 -0.00017944H328.249V12.6362H315.613V-0.00017944ZM315.613 50.5453H328.249V63.1816H315.613V50.5453ZM315.613 25.2725H328.249V37.9089H315.613V25.2725ZM328.249 -0.00017944H340.886V12.6362H328.249V-0.00017944ZM328.249 50.5453H340.886V63.1816H328.249V50.5453ZM353.473 -0.00017944H366.109V12.6362H353.473V-0.00017944ZM366.109 -0.00017944H378.745V12.6362H366.109V-0.00017944ZM378.745 -0.00017944H391.382V12.6362H378.745V-0.00017944ZM366.109 12.6362H378.745V25.2725H366.109V12.6362ZM366.109 25.2725H378.745V37.9089H366.109V25.2725ZM366.109 37.9089H378.745V50.5453H366.109V37.9089ZM366.109 50.5453H378.745V63.1816H366.109V50.5453Z"
-				fill="currentColor"
-			/>
-		</svg>
-	);
-}
-
-function formatRelativeTime(date: Date): string {
-	const now = new Date();
-	const diff = now.getTime() - new Date(date).getTime();
-	const seconds = Math.floor(diff / 1000);
-	const minutes = Math.floor(seconds / 60);
-	const hours = Math.floor(minutes / 60);
-	const days = Math.floor(hours / 24);
-
-	if (days > 0) return `${days}d`;
-	if (hours > 0) return `${hours}h`;
-	if (minutes > 0) return `${minutes}m`;
-	return "now";
-}
-
-function isInactive(date: Date): boolean {
-	const now = new Date();
-	const diff = now.getTime() - new Date(date).getTime();
-	const days = diff / (1000 * 60 * 60 * 24);
-	return days > 7;
 }
 
 const CONTROL_PLANE_URL =
@@ -232,47 +173,10 @@ export function CloudWorkspaceContent({
 	const trpc = useTRPC();
 	const router = useRouter();
 	const searchParams = useSearchParams();
-	const _queryClient = useQueryClient();
 	const initialPromptRef = useRef<string | null>(null);
 	const hasSentInitialPrompt = useRef(false);
 
-	// Poll for workspace list to get updated sandbox statuses for all sessions
-	const { data: polledWorkspaces } = useQuery({
-		...trpc.cloudWorkspace.list.queryOptions(),
-		// Refetch every 30 seconds to get updated sandbox statuses
-		refetchInterval: 30000,
-		// Start with stale time of 0 to fetch immediately but use server data until then
-		staleTime: 0,
-	});
-
-	// Use polled data if available, otherwise fall back to initial server data
-	// Map the polled data to match our CloudWorkspace interface
-	const workspaces = useMemo(() => {
-		if (polledWorkspaces) {
-			return polledWorkspaces.map((w) => ({
-				id: w.id,
-				sessionId: w.sessionId,
-				title: w.title,
-				repoOwner: w.repoOwner,
-				repoName: w.repoName,
-				branch: w.branch,
-				baseBranch: w.baseBranch,
-				status: w.status,
-				sandboxStatus: w.sandboxStatus,
-				model: w.model,
-				linearIssueKey: w.linearIssueKey,
-				prUrl: w.prUrl,
-				prNumber: w.prNumber,
-				createdAt: w.createdAt,
-				updatedAt: w.updatedAt,
-			}));
-		}
-		return initialWorkspaces;
-	}, [polledWorkspaces, initialWorkspaces]);
-
 	const [promptInput, setPromptInput] = useState("");
-	const [sidebarOpen, setSidebarOpen] = useState(true);
-	const [searchQuery, setSearchQuery] = useState("");
 	const [isEditingTitle, setIsEditingTitle] = useState(false);
 	const [editedTitle, setEditedTitle] = useState(workspace.title);
 	const [isMounted, setIsMounted] = useState(false);
@@ -426,12 +330,7 @@ export function CloudWorkspaceContent({
 				return;
 			}
 
-			// ⌘+\ or Ctrl+\ to toggle sidebar
-			if (modKey && e.key === "\\") {
-				e.preventDefault();
-				setSidebarOpen((prev) => !prev);
-				return;
-			}
+			// Note: ⌘+B for sidebar toggle is handled by SidebarProvider
 		};
 
 		window.addEventListener("keydown", handleGlobalKeyDown);
@@ -476,122 +375,18 @@ export function CloudWorkspaceContent({
 
 	const groupedEvents = useMemo(() => groupEvents(events), [events]);
 
-	const filteredWorkspaces = useMemo(() => {
-		if (!searchQuery.trim()) return workspaces;
-		const query = searchQuery.toLowerCase();
-		return workspaces.filter(
-			(w) =>
-				w.title?.toLowerCase().includes(query) ||
-				`${w.repoOwner}/${w.repoName}`.toLowerCase().includes(query),
-		);
-	}, [workspaces, searchQuery]);
-
-	const activeWorkspaces = useMemo(
-		() => filteredWorkspaces.filter((w) => !isInactive(w.updatedAt)),
-		[filteredWorkspaces],
-	);
-
-	const inactiveWorkspaces = useMemo(
-		() => filteredWorkspaces.filter((w) => isInactive(w.updatedAt)),
-		[filteredWorkspaces],
-	);
-
 	return (
-		<div className="flex h-screen bg-background">
-			{/* Sidebar */}
-			<aside
-				className={cn(
-					"border-r flex flex-col bg-background transition-all duration-200",
-					sidebarOpen ? "w-64" : "w-0 overflow-hidden",
-				)}
-			>
-				{/* Header */}
-				<div className="h-14 px-4 flex items-center justify-between border-b">
-					<div className="flex items-center gap-2">
-						<Link href="/cloud">
-							<SupersetLogo className="h-4" />
-						</Link>
-					</div>
-					<Button variant="ghost" size="icon" className="size-8" asChild>
-						<Link href="/cloud/new">
-							<LuPlus className="size-4" />
-						</Link>
-					</Button>
-				</div>
+		<SidebarProvider>
+			<CloudSidebar
+				initialWorkspaces={initialWorkspaces}
+				activeSessionId={workspace.sessionId}
+				realtimeSandboxStatus={sessionState?.sandboxStatus}
+			/>
 
-				{/* Search */}
-				<div className="px-3 py-2">
-					<Input
-						placeholder="Search sessions..."
-						value={searchQuery}
-						onChange={(e) => setSearchQuery(e.target.value)}
-						className="h-8 text-sm bg-muted/50 border-0"
-					/>
-				</div>
-
-				{/* Session list */}
-				<ScrollArea className="flex-1">
-					{filteredWorkspaces.length === 0 ? (
-						<div className="px-4 py-8 text-center text-muted-foreground text-sm">
-							{searchQuery ? "No sessions found" : "No sessions yet"}
-						</div>
-					) : (
-						<div className="px-2 py-1">
-							{/* Active sessions */}
-							{activeWorkspaces.map((w) => (
-								<SessionListItem
-									key={w.id}
-									workspace={w}
-									isActive={w.sessionId === workspace.sessionId}
-									realtimeSandboxStatus={
-										w.sessionId === workspace.sessionId
-											? sessionState?.sandboxStatus
-											: undefined
-									}
-								/>
-							))}
-
-							{/* Inactive sessions */}
-							{inactiveWorkspaces.length > 0 && (
-								<>
-									<div className="px-2 py-2 mt-2 text-xs text-muted-foreground">
-										Inactive
-									</div>
-									{inactiveWorkspaces.map((w) => (
-										<SessionListItem
-											key={w.id}
-											workspace={w}
-											isActive={w.sessionId === workspace.sessionId}
-											realtimeSandboxStatus={
-												w.sessionId === workspace.sessionId
-													? sessionState?.sandboxStatus
-													: undefined
-											}
-										/>
-									))}
-								</>
-							)}
-						</div>
-					)}
-				</ScrollArea>
-			</aside>
-
-			{/* Main content */}
-			<div className="flex-1 flex flex-col min-w-0">
+			<SidebarInset>
 				{/* Header */}
 				<header className="h-14 flex items-center gap-3 border-b px-4">
-					<Button
-						variant="ghost"
-						size="icon"
-						className="size-8"
-						onClick={() => setSidebarOpen(!sidebarOpen)}
-					>
-						{sidebarOpen ? (
-							<LuPanelLeftClose className="size-4" />
-						) : (
-							<LuPanelLeftOpen className="size-4" />
-						)}
-					</Button>
+					<SidebarTrigger />
 					<div className="flex-1 min-w-0">
 						{isEditingTitle ? (
 							<div className="flex items-center gap-1">
@@ -879,7 +674,7 @@ export function CloudWorkspaceContent({
 						</div>
 					</div>
 				</div>
-			</div>
+			</SidebarInset>
 
 			{/* Archive Confirmation Dialog */}
 			<AlertDialog open={showArchiveDialog} onOpenChange={setShowArchiveDialog}>
@@ -910,64 +705,7 @@ export function CloudWorkspaceContent({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</div>
-	);
-}
-
-function SessionListItem({
-	workspace,
-	isActive,
-	realtimeSandboxStatus,
-}: {
-	workspace: CloudWorkspace;
-	isActive?: boolean;
-	realtimeSandboxStatus?: string;
-}) {
-	// Use real-time status if available (for current session), otherwise use database status
-	const sandboxStatus = realtimeSandboxStatus ?? workspace.sandboxStatus;
-
-	// Determine status indicator color and label
-	const getStatusInfo = () => {
-		if (sandboxStatus === "ready" || sandboxStatus === "running") {
-			return { color: "bg-green-500", label: "Running" };
-		}
-		if (sandboxStatus === "warming" || sandboxStatus === "syncing") {
-			return {
-				color: "bg-amber-500 animate-pulse",
-				label: sandboxStatus === "warming" ? "Warming" : "Syncing",
-			};
-		}
-		if (sandboxStatus === "error" || sandboxStatus === "failed") {
-			return { color: "bg-red-500", label: "Error" };
-		}
-		// No sandbox or stopped
-		return { color: "bg-muted-foreground/30", label: "Inactive" };
-	};
-
-	const statusInfo = getStatusInfo();
-
-	return (
-		<Link
-			href={`/cloud/${workspace.sessionId}`}
-			className={cn(
-				"block px-2 py-2 rounded-md transition-colors",
-				isActive ? "bg-accent" : "hover:bg-muted",
-			)}
-		>
-			<div className="flex items-center gap-2">
-				<div
-					className={cn("size-2 rounded-full shrink-0", statusInfo.color)}
-					title={statusInfo.label}
-				/>
-				<p className="text-sm truncate flex-1">
-					{workspace.title || `${workspace.repoOwner}/${workspace.repoName}`}
-				</p>
-			</div>
-			<p className="text-xs text-muted-foreground mt-0.5 truncate pl-4">
-				{formatRelativeTime(workspace.updatedAt)} · {workspace.repoOwner}/
-				{workspace.repoName}
-			</p>
-		</Link>
+		</SidebarProvider>
 	);
 }
 

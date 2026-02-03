@@ -32,7 +32,9 @@ export default async function CloudPage() {
 		<CloudHomePage
 			organizationId={organizationId}
 			workspaces={workspaces}
-			hasGitHubInstallation={!!githubInstallation && !githubInstallation.suspended}
+			hasGitHubInstallation={
+				!!githubInstallation && !githubInstallation.suspended
+			}
 			githubRepositories={githubRepositories}
 		/>
 	);

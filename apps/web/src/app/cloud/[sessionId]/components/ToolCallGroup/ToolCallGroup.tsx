@@ -53,28 +53,30 @@ export function ToolCallGroup({ events, groupId }: ToolCallGroupProps) {
 	}
 
 	return (
-		<div className="py-1">
+		<div className="py-0.5">
 			<button
 				onClick={() => setIsExpanded(!isExpanded)}
-				className="w-full flex items-center gap-2 text-sm text-left hover:bg-muted/50 px-2 py-1 -mx-2 rounded transition-colors"
+				className="w-full flex items-center gap-2 text-xs text-left hover:bg-muted/50 px-1.5 py-1 -mx-1.5 rounded-md transition-colors"
 			>
 				<LuChevronRight
-					className={`size-3.5 text-muted-foreground transition-transform duration-200 ${
+					className={`size-3 text-muted-foreground shrink-0 transition-transform duration-200 ${
 						isExpanded ? "rotate-90" : ""
 					}`}
 				/>
-				<ToolIcon name={formatted.icon} />
-				<span className="font-medium text-foreground">
+				<ToolIcon name={formatted.icon} className="shrink-0" />
+				<span className="font-medium text-foreground shrink-0">
 					{formatted.toolName}
 				</span>
-				<span className="text-muted-foreground">{formatted.summary}</span>
-				<span className="text-xs text-muted-foreground/50 ml-auto flex-shrink-0">
+				<span className="text-muted-foreground/60 truncate">
+					{formatted.summary}
+				</span>
+				<span className="text-[10px] text-muted-foreground/40 ml-auto shrink-0 tabular-nums">
 					{time}
 				</span>
 			</button>
 
 			{isExpanded && (
-				<div className="ml-4 mt-1 pl-2 border-l-2 border-border">
+				<div className="ml-4 mt-1 pl-3 border-l border-border/50">
 					{events.map((event, index) => (
 						<ToolCallItem
 							key={`${groupId}-${index}`}

@@ -7,3 +7,17 @@
 	--font-family-mono: var(--font-ibm-plex-mono), ui-monospace, monospace;
 	--font-family-sans: var(--font-inter), ui-sans-serif, sans-serif;
 }
+
+/* TextShimmer animation for pending states */
+@keyframes shimmer {
+	0% {
+		background-position: 200% center;
+	}
+	100% {
+		background-position: -200% center;
+	}
+}
+
+.animate-shimmer {
+	animation: shimmer 1.5s linear infinite;
+}

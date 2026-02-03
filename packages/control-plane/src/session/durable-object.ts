@@ -34,15 +34,17 @@ export class SessionDO extends DurableObject<Env> {
 	private sql: SqlStorage;
 	private clients: Map<WebSocket, ClientInfo>;
 	private sandboxWs: WebSocket | null = null;
-	private sandboxInfo: { sandboxId: string; authenticatedAt: number } | null =
-		null;
 	private pendingMessages: Map<
 		string,
 		{
 			content: string;
 			createdAt: number;
 			model?: string;
-			author?: { userId: string; githubName: string | null; githubEmail: string | null };
+			author?: {
+				userId: string;
+				githubName: string | null;
+				githubEmail: string | null;
+			};
 			attachments?: Array<{
 				type: string;
 				name: string;
@@ -339,7 +341,10 @@ export class SessionDO extends DurableObject<Env> {
 	private trackFileChanges(sessionId: string, event: SandboxEvent): void {
 		if (event.type !== "tool_call") return;
 
-		const data = event.data as { name?: string; input?: Record<string, unknown> };
+		const data = event.data as {
+			name?: string;
+			input?: Record<string, unknown>;
+		};
 		if (!data.name || !data.input) return;
 
 		// Detect Write, Edit tool calls
@@ -350,13 +355,17 @@ export class SessionDO extends DurableObject<Env> {
 		if (!filePath) return;
 
 		// Get current files_changed
-		const rows = this.sql.exec("SELECT files_changed FROM session WHERE id = ?", sessionId).toArray();
+		const rows = this.sql
+			.exec("SELECT files_changed FROM session WHERE id = ?", sessionId)
+			.toArray();
 		if (rows.length === 0) return;
 
 		const session = rows[0] as { files_changed: string };
 		let filesChanged: FileChange[] = [];
 		try {
-			filesChanged = session.files_changed ? JSON.parse(session.files_changed) : [];
+			filesChanged = session.files_changed
+				? JSON.parse(session.files_changed)
+				: [];
 		} catch {
 			filesChanged = [];
 		}
@@ -396,7 +405,10 @@ export class SessionDO extends DurableObject<Env> {
 		// Broadcast state update
 		const state = this.getSessionState();
 		if (state) {
-			this.broadcast({ type: "state_update", state: { filesChanged: state.filesChanged } });
+			this.broadcast({
+				type: "state_update",
+				state: { filesChanged: state.filesChanged },
+			});
 		}
 	}
 
@@ -744,7 +756,12 @@ export class SessionDO extends DurableObject<Env> {
 					break;
 
 				case "push":
-					await this.handlePushFromClient(ws, clientData.branchName, clientData.repoOwner, clientData.repoName);
+					await this.handlePushFromClient(
+						ws,
+						clientData.branchName,
+						clientData.repoOwner,
+						clientData.repoName,
+					);
 					break;
 
 				case "snapshot":
@@ -821,7 +838,7 @@ export class SessionDO extends DurableObject<Env> {
 		if (clientInfo) {
 			const rows = this.sql.exec("SELECT * FROM session LIMIT 1").toArray();
 			if (rows.length > 0) {
-				const session = rows[0] as unknown as SessionRow;
+				const _session = rows[0] as unknown as SessionRow;
 				const now = Date.now();
 
 				// Update participant's last_seen_at in database
@@ -893,7 +910,9 @@ export class SessionDO extends DurableObject<Env> {
 		// Get session and upsert participant record
 		const rows = this.sql.exec("SELECT * FROM session LIMIT 1").toArray();
 		if (rows.length === 0) {
-			console.error("[SessionDO] handleSubscribe: No session found in database");
+			console.error(
+				"[SessionDO] handleSubscribe: No session found in database",
+			);
 			this.safeSend(ws, {
 				type: "error",
 				message: "Session not found or not initialized",
@@ -1091,10 +1110,7 @@ export class SessionDO extends DurableObject<Env> {
 		const client = this.clients.get(ws);
 		const participantRows = client?.participantId
 			? this.sql
-					.exec(
-						"SELECT * FROM participants WHERE id = ?",
-						client.participantId,
-					)
+					.exec("SELECT * FROM participants WHERE id = ?", client.participantId)
 					.toArray()
 			: [];
 		const participant =
@@ -1418,7 +1434,10 @@ export class SessionDO extends DurableObject<Env> {
 		ws: WebSocket,
 		data: SandboxMessage,
 	): Promise<void> {
-		console.log("[SessionDO] handleSandboxConnect called with sandboxId:", data.type === "sandbox_connect" ? data.sandboxId : "N/A");
+		console.log(
+			"[SessionDO] handleSandboxConnect called with sandboxId:",
+			data.type === "sandbox_connect" ? data.sandboxId : "N/A",
+		);
 		if (data.type !== "sandbox_connect") return;
 
 		// Verify the sandbox token
@@ -1471,7 +1490,10 @@ export class SessionDO extends DurableObject<Env> {
 
 		// Update sandbox status
 		if (session) {
-			console.log("[SessionDO] Updating sandbox_status to 'ready' for session:", session.id);
+			console.log(
+				"[SessionDO] Updating sandbox_status to 'ready' for session:",
+				session.id,
+			);
 			this.sql.exec(
 				"UPDATE session SET sandbox_status = 'ready', updated_at = ? WHERE id = ?",
 				Date.now(),
@@ -1480,7 +1502,12 @@ export class SessionDO extends DurableObject<Env> {
 
 			// Broadcast state update to clients
 			const state = this.getSessionState();
-			console.log("[SessionDO] Broadcasting state_update, sandboxStatus:", state?.sandboxStatus, "clients:", this.clients.size);
+			console.log(
+				"[SessionDO] Broadcasting state_update, sandboxStatus:",
+				state?.sandboxStatus,
+				"clients:",
+				this.clients.size,
+			);
 			if (state) {
 				this.broadcast({ type: "state_update", state });
 			}
@@ -1522,7 +1549,9 @@ export class SessionDO extends DurableObject<Env> {
 					const eventData = data.event.data as { status?: string };
 					// Check if this is a "ready" status from the sandbox
 					if (eventData?.status === "ready") {
-						console.log("[SessionDO] git_sync ready event received, setting sandbox_status to 'ready'");
+						console.log(
+							"[SessionDO] git_sync ready event received, setting sandbox_status to 'ready'",
+						);
 						this.sql.exec(
 							"UPDATE session SET sandbox_status = 'ready', updated_at = ? WHERE id = ?",
 							Date.now(),
@@ -1611,10 +1640,8 @@ export class SessionDO extends DurableObject<Env> {
 			"pending messages",
 		);
 
-		for (const [
-			messageId,
-			{ content, model, author, attachments },
-		] of this.pendingMessages) {
+		for (const [messageId, { content, model, author, attachments }] of this
+			.pendingMessages) {
 			const promptCommand: ControlPlaneToSandboxMessage = {
 				type: "prompt",
 				messageId,
@@ -1766,7 +1793,9 @@ export class SessionDO extends DurableObject<Env> {
 			const eventData = event.data as { status?: string };
 			// Check if this is a "ready" status from the sandbox
 			if (eventData?.status === "ready") {
-				console.log("[SessionDO] git_sync ready event (HTTP), setting sandbox_status to 'ready'");
+				console.log(
+					"[SessionDO] git_sync ready event (HTTP), setting sandbox_status to 'ready'",
+				);
 				this.sql.exec(
 					"UPDATE session SET sandbox_status = 'ready', updated_at = ? WHERE id = ?",
 					Date.now(),

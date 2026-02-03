@@ -1,21 +1,6 @@
 "use client";
 
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@superset/ui/alert-dialog";
 import { Button } from "@superset/ui/button";
-import {
-	Collapsible,
-	CollapsibleContent,
-	CollapsibleTrigger,
-} from "@superset/ui/collapsible";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -24,44 +9,22 @@ import {
 	DropdownMenuTrigger,
 } from "@superset/ui/dropdown-menu";
 import { Input } from "@superset/ui/input";
-import { ScrollArea } from "@superset/ui/scroll-area";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@superset/ui/sidebar";
+import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
-	LuArchive,
-	LuArchiveRestore,
 	LuChevronDown,
-	LuChevronRight,
 	LuGithub,
 	LuLoader,
 	LuLock,
 	LuPaperclip,
-	LuPlus,
 	LuSend,
-	LuTrash2,
 } from "react-icons/lu";
 
 import { env } from "@/env";
 import { useTRPC } from "@/trpc/react";
-
-function _SupersetIcon({ className }: { className?: string }) {
-	return (
-		<svg
-			viewBox="0 0 64 64"
-			fill="none"
-			xmlns="http://www.w3.org/2000/svg"
-			aria-label="Superset"
-			className={className}
-		>
-			<path
-				d="M25.2727 0H37.9091V12.6364H25.2727V0ZM12.6364 0H25.2727V12.6364H12.6364V0ZM0 12.6364H12.6364V25.2727H0V12.6364ZM0 25.2727H12.6364V37.9091H0V25.2727ZM12.6364 25.2727H25.2727V37.9091H12.6364V25.2727ZM25.2727 25.2727H37.9091V37.9091H25.2727V25.2727ZM25.2727 37.9091H37.9091V50.5455H25.2727V37.9091ZM25.2727 50.5455H37.9091V63.1818H25.2727V50.5455ZM12.6364 50.5455H25.2727V63.1818H12.6364V50.5455ZM0 50.5455H12.6364V63.1818H0V50.5455ZM0 0H12.6364V12.6364H0V0Z"
-				fill="currentColor"
-			/>
-		</svg>
-	);
-}
+import { CloudSidebar, type CloudWorkspace } from "../CloudSidebar";
 
 function SupersetLogo({ className }: { className?: string }) {
 	return (
@@ -78,21 +41,6 @@ function SupersetLogo({ className }: { className?: string }) {
 			/>
 		</svg>
 	);
-}
-
-interface CloudWorkspace {
-	id: string;
-	sessionId: string;
-	title: string;
-	repoOwner: string;
-	repoName: string;
-	branch: string;
-	baseBranch: string;
-	status: string;
-	sandboxStatus: string | null;
-	model: string | null;
-	createdAt: Date;
-	updatedAt: Date;
 }
 
 interface GitHubRepository {
@@ -115,27 +63,6 @@ interface CloudHomePageProps {
 	githubRepositories: GitHubRepository[];
 }
 
-function formatRelativeTime(date: Date): string {
-	const now = new Date();
-	const diff = now.getTime() - new Date(date).getTime();
-	const seconds = Math.floor(diff / 1000);
-	const minutes = Math.floor(seconds / 60);
-	const hours = Math.floor(minutes / 60);
-	const days = Math.floor(hours / 24);
-
-	if (days > 0) return `${days}d`;
-	if (hours > 0) return `${hours}h`;
-	if (minutes > 0) return `${minutes}m`;
-	return "now";
-}
-
-function isInactive(date: Date): boolean {
-	const now = new Date();
-	const diff = now.getTime() - new Date(date).getTime();
-	const days = diff / (1000 * 60 * 60 * 24);
-	return days > 7;
-}
-
 export function CloudHomePage({
 	organizationId,
 	workspaces: initialWorkspaces,
@@ -144,8 +71,6 @@ export function CloudHomePage({
 }: CloudHomePageProps) {
 	const trpc = useTRPC();
 	const router = useRouter();
-	const queryClient = useQueryClient();
-	const [searchQuery, setSearchQuery] = useState("");
 	const [promptInput, setPromptInput] = useState("");
 	const [selectedRepo, setSelectedRepo] = useState<GitHubRepository | null>(
 		null,
@@ -154,73 +79,11 @@ export function CloudHomePage({
 		"claude-sonnet-4" | "claude-opus-4" | "claude-haiku-3-5"
 	>("claude-sonnet-4");
 	const [error, setError] = useState<string | null>(null);
-	const [showArchived, setShowArchived] = useState(false);
-	const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-
-	// Poll for workspace list to get updated sandbox statuses
-	const { data: polledWorkspaces } = useQuery({
-		...trpc.cloudWorkspace.list.queryOptions(),
-		refetchInterval: 30000,
-		staleTime: 0,
-	});
-
-	// Fetch archived workspaces
-	const { data: archivedWorkspaces = [] } = useQuery({
-		...trpc.cloudWorkspace.listArchived.queryOptions(),
-		enabled: showArchived,
-	});
-
-	// Unarchive mutation
-	const unarchiveMutation = useMutation(
-		trpc.cloudWorkspace.unarchive.mutationOptions({
-			onSuccess: () => {
-				queryClient.invalidateQueries({
-					queryKey: trpc.cloudWorkspace.list.queryKey(),
-				});
-				queryClient.invalidateQueries({
-					queryKey: trpc.cloudWorkspace.listArchived.queryKey(),
-				});
-			},
-		}),
-	);
-
-	// Delete mutation (only for archived workspaces)
-	const deleteMutation = useMutation(
-		trpc.cloudWorkspace.delete.mutationOptions({
-			onSuccess: () => {
-				setDeleteConfirmId(null);
-				queryClient.invalidateQueries({
-					queryKey: trpc.cloudWorkspace.listArchived.queryKey(),
-				});
-			},
-		}),
-	);
-
-	// Use polled data if available, map to CloudWorkspace interface
-	const workspaces = useMemo(() => {
-		if (polledWorkspaces) {
-			return polledWorkspaces.map((w) => ({
-				id: w.id,
-				sessionId: w.sessionId,
-				title: w.title,
-				repoOwner: w.repoOwner,
-				repoName: w.repoName,
-				branch: w.branch,
-				baseBranch: w.baseBranch,
-				status: w.status,
-				sandboxStatus: w.sandboxStatus,
-				model: w.model,
-				createdAt: w.createdAt,
-				updatedAt: w.updatedAt,
-			}));
-		}
-		return initialWorkspaces;
-	}, [polledWorkspaces, initialWorkspaces]);
 
 	// Get recent repos (from recent workspaces)
 	const recentRepos = useMemo(() => {
 		const repoMap = new Map<string, GitHubRepository>();
-		for (const ws of workspaces.slice(0, 5)) {
+		for (const ws of initialWorkspaces.slice(0, 5)) {
 			const repo = githubRepositories.find(
 				(r) => r.owner === ws.repoOwner && r.name === ws.repoName,
 			);
@@ -229,7 +92,7 @@ export function CloudHomePage({
 			}
 		}
 		return Array.from(repoMap.values()).slice(0, 3);
-	}, [workspaces, githubRepositories]);
+	}, [initialWorkspaces, githubRepositories]);
 
 	// Create session mutation - simple, like NewSessionForm
 	const createMutation = useMutation(
@@ -279,124 +142,28 @@ export function CloudHomePage({
 		}
 	};
 
-	const filteredWorkspaces = useMemo(() => {
-		if (!searchQuery.trim()) return workspaces;
-		const query = searchQuery.toLowerCase();
-		return workspaces.filter(
-			(w) =>
-				w.title?.toLowerCase().includes(query) ||
-				`${w.repoOwner}/${w.repoName}`.toLowerCase().includes(query),
-		);
-	}, [workspaces, searchQuery]);
+	// Calculate stats for the main content area
+	const activeWorkspacesCount = initialWorkspaces.filter((w) => {
+		const now = new Date();
+		const diff = now.getTime() - new Date(w.updatedAt).getTime();
+		const days = diff / (1000 * 60 * 60 * 24);
+		return days <= 7;
+	}).length;
 
-	const activeWorkspaces = useMemo(
-		() => filteredWorkspaces.filter((w) => !isInactive(w.updatedAt)),
-		[filteredWorkspaces],
-	);
-
-	const inactiveWorkspaces = useMemo(
-		() => filteredWorkspaces.filter((w) => isInactive(w.updatedAt)),
-		[filteredWorkspaces],
-	);
+	const thisWeekCount = initialWorkspaces.filter((w) => {
+		const diff = Date.now() - new Date(w.createdAt).getTime();
+		return diff < 7 * 24 * 60 * 60 * 1000;
+	}).length;
 
 	return (
-		<div className="flex h-screen bg-background">
-			{/* Sidebar */}
-			<aside className="w-64 border-r flex flex-col bg-background">
-				{/* Header */}
-				<div className="h-14 px-4 flex items-center justify-between border-b">
-					<div className="flex items-center gap-2">
-						<SupersetLogo className="h-4" />
-					</div>
-					<Button variant="ghost" size="icon" className="size-8" asChild>
-						<Link href="/cloud/new">
-							<LuPlus className="size-4" />
-						</Link>
-					</Button>
-				</div>
+		<SidebarProvider>
+			<CloudSidebar initialWorkspaces={initialWorkspaces} />
 
-				{/* Search */}
-				<div className="px-3 py-2">
-					<Input
-						placeholder="Search sessions..."
-						value={searchQuery}
-						onChange={(e) => setSearchQuery(e.target.value)}
-						className="h-8 text-sm bg-muted/50 border-0"
-					/>
-				</div>
-
-				{/* Session list */}
-				<ScrollArea className="flex-1">
-					{filteredWorkspaces.length === 0 ? (
-						<div className="px-4 py-8 text-center text-muted-foreground text-sm">
-							{searchQuery ? "No sessions found" : "No sessions yet"}
-						</div>
-					) : (
-						<div className="px-2 py-1">
-							{/* Active sessions */}
-							{activeWorkspaces.map((workspace) => (
-								<SessionListItem key={workspace.id} workspace={workspace} />
-							))}
-
-							{/* Inactive sessions */}
-							{inactiveWorkspaces.length > 0 && (
-								<>
-									<div className="px-2 py-2 mt-2 text-xs text-muted-foreground">
-										Inactive
-									</div>
-									{inactiveWorkspaces.map((workspace) => (
-										<SessionListItem key={workspace.id} workspace={workspace} />
-									))}
-								</>
-							)}
-
-							{/* Archived sessions - collapsible */}
-							<Collapsible open={showArchived} onOpenChange={setShowArchived}>
-								<CollapsibleTrigger className="flex items-center gap-1 px-2 py-2 mt-2 text-xs text-muted-foreground hover:text-foreground w-full">
-									{showArchived ? (
-										<LuChevronDown className="size-3" />
-									) : (
-										<LuChevronRight className="size-3" />
-									)}
-									<LuArchive className="size-3" />
-									<span>Archived</span>
-									{archivedWorkspaces.length > 0 && (
-										<span className="ml-auto text-muted-foreground/60">
-											{archivedWorkspaces.length}
-										</span>
-									)}
-								</CollapsibleTrigger>
-								<CollapsibleContent>
-									{archivedWorkspaces.length === 0 ? (
-										<div className="px-4 py-3 text-xs text-muted-foreground/60">
-											No archived sessions
-										</div>
-									) : (
-										archivedWorkspaces.map((workspace) => (
-											<ArchivedSessionItem
-												key={workspace.id}
-												workspace={workspace}
-												onUnarchive={() =>
-													unarchiveMutation.mutate({ id: workspace.id })
-												}
-												onDelete={() => setDeleteConfirmId(workspace.id)}
-												isUnarchiving={
-													unarchiveMutation.isPending &&
-													unarchiveMutation.variables?.id === workspace.id
-												}
-											/>
-										))
-									)}
-								</CollapsibleContent>
-							</Collapsible>
-						</div>
-					)}
-				</ScrollArea>
-			</aside>
-
-			{/* Main content */}
-			<main className="flex-1 flex flex-col relative bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] dark:bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:16px_16px]">
-				<div className="flex-1 flex flex-col items-center justify-center p-8">
+			<SidebarInset className="bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] dark:bg-[radial-gradient(#374151_1px,transparent_1px)] [background-size:16px_16px]">
+				<header className="h-14 flex items-center gap-3 border-b px-4">
+					<SidebarTrigger />
+				</header>
+				<main className="flex-1 flex flex-col items-center justify-center p-8 relative">
 					{/* Centered prompt input */}
 					<div className="w-full max-w-2xl space-y-4">
 						{/* Repo selector row */}
@@ -576,182 +343,27 @@ export function CloudHomePage({
 
 					{/* Stats cards */}
 					<div className="w-full max-w-2xl mt-12 grid grid-cols-3 gap-4">
-						<StatsCard label="Sessions" value={workspaces.length.toString()} />
+						<StatsCard
+							label="Sessions"
+							value={initialWorkspaces.length.toString()}
+						/>
 						<StatsCard
 							label="Active"
-							value={activeWorkspaces.length.toString()}
+							value={activeWorkspacesCount.toString()}
 						/>
-						<StatsCard
-							label="This week"
-							value={workspaces
-								.filter((w) => {
-									const diff = Date.now() - new Date(w.createdAt).getTime();
-									return diff < 7 * 24 * 60 * 60 * 1000;
-								})
-								.length.toString()}
-						/>
+						<StatsCard label="This week" value={thisWeekCount.toString()} />
 					</div>
-				</div>
+				</main>
 
 				{/* Footer */}
 				<div className="absolute bottom-4 left-1/2 -translate-x-1/2">
 					<span className="text-xs text-muted-foreground flex items-center gap-1.5">
 						<span className="size-1.5 rounded-full bg-green-500" />
-						{workspaces.length} cloud sessions
+						{initialWorkspaces.length} cloud sessions
 					</span>
 				</div>
-			</main>
-
-			{/* Delete Confirmation Dialog */}
-			<AlertDialog
-				open={!!deleteConfirmId}
-				onOpenChange={(open) => !open && setDeleteConfirmId(null)}
-			>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							Delete this session permanently?
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							This action cannot be undone. The session and all its data will be
-							permanently deleted.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel>Cancel</AlertDialogCancel>
-						<AlertDialogAction
-							onClick={() =>
-								deleteConfirmId &&
-								deleteMutation.mutate({ id: deleteConfirmId })
-							}
-							disabled={deleteMutation.isPending}
-							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-						>
-							{deleteMutation.isPending ? (
-								<>
-									<LuLoader className="size-4 mr-2 animate-spin" />
-									Deleting...
-								</>
-							) : (
-								"Delete"
-							)}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-		</div>
-	);
-}
-
-function SessionListItem({ workspace }: { workspace: CloudWorkspace }) {
-	// Determine status indicator color and label
-	const getStatusInfo = () => {
-		const sandboxStatus = workspace.sandboxStatus;
-		if (sandboxStatus === "ready" || sandboxStatus === "running") {
-			return { color: "bg-green-500", label: "Running" };
-		}
-		if (sandboxStatus === "warming" || sandboxStatus === "syncing") {
-			return {
-				color: "bg-amber-500",
-				label: sandboxStatus === "warming" ? "Warming" : "Syncing",
-			};
-		}
-		if (sandboxStatus === "error") {
-			return { color: "bg-red-500", label: "Error" };
-		}
-		// No sandbox or stopped
-		return { color: "bg-muted-foreground/30", label: "Inactive" };
-	};
-
-	const statusInfo = getStatusInfo();
-
-	return (
-		<Link
-			href={`/cloud/${workspace.sessionId}`}
-			className="block px-2 py-2 rounded-md hover:bg-muted transition-colors"
-		>
-			<div className="flex items-center gap-2">
-				<div
-					className={`size-2 rounded-full shrink-0 ${statusInfo.color}`}
-					title={statusInfo.label}
-				/>
-				<p className="text-sm truncate flex-1">
-					{workspace.title || `${workspace.repoOwner}/${workspace.repoName}`}
-				</p>
-			</div>
-			<p className="text-xs text-muted-foreground mt-0.5 truncate pl-4">
-				{formatRelativeTime(workspace.updatedAt)} · {workspace.repoOwner}/
-				{workspace.repoName}
-			</p>
-		</Link>
-	);
-}
-
-interface ArchivedWorkspace {
-	id: string;
-	sessionId: string;
-	title: string;
-	repoOwner: string;
-	repoName: string;
-	archivedAt: Date | null;
-}
-
-function ArchivedSessionItem({
-	workspace,
-	onUnarchive,
-	onDelete,
-	isUnarchiving,
-}: {
-	workspace: ArchivedWorkspace;
-	onUnarchive: () => void;
-	onDelete: () => void;
-	isUnarchiving: boolean;
-}) {
-	return (
-		<div className="group flex items-center gap-2 px-2 py-2 rounded-md hover:bg-muted transition-colors">
-			<div className="size-2 rounded-full shrink-0 bg-muted-foreground/20" />
-			<div className="flex-1 min-w-0">
-				<p className="text-sm truncate text-muted-foreground">
-					{workspace.title || `${workspace.repoOwner}/${workspace.repoName}`}
-				</p>
-				<p className="text-xs text-muted-foreground/60 truncate">
-					{workspace.archivedAt
-						? `Archived ${formatRelativeTime(workspace.archivedAt)}`
-						: "Archived"}
-				</p>
-			</div>
-			<div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-				<Button
-					variant="ghost"
-					size="icon"
-					className="size-6"
-					onClick={(e) => {
-						e.stopPropagation();
-						onUnarchive();
-					}}
-					disabled={isUnarchiving}
-					title="Restore session"
-				>
-					{isUnarchiving ? (
-						<LuLoader className="size-3 animate-spin" />
-					) : (
-						<LuArchiveRestore className="size-3" />
-					)}
-				</Button>
-				<Button
-					variant="ghost"
-					size="icon"
-					className="size-6 text-destructive hover:text-destructive"
-					onClick={(e) => {
-						e.stopPropagation();
-						onDelete();
-					}}
-					title="Delete permanently"
-				>
-					<LuTrash2 className="size-3" />
-				</Button>
-			</div>
-		</div>
+			</SidebarInset>
+		</SidebarProvider>
 	);
 }
 

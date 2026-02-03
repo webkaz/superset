@@ -101,6 +101,31 @@ class EventEmitter:
         """Emit a heartbeat event."""
         self.emit(EventType.HEARTBEAT, {"timestamp": int(time.time() * 1000)})
 
+    def emit_push_complete(self, branch_name: str) -> None:
+        """Emit a push complete event."""
+        self.emit(EventType.PUSH_COMPLETE, {"branchName": branch_name})
+
+    def emit_push_error(self, error: str, branch_name: str | None = None) -> None:
+        """Emit a push error event."""
+        data = {"error": error}
+        if branch_name:
+            data["branchName"] = branch_name
+        self.emit(EventType.PUSH_ERROR, data)
+
+    def emit_ready(self, sandbox_id: str, opencode_session_id: str | None = None) -> None:
+        """Emit a ready event when sandbox is initialized."""
+        data = {"sandboxId": sandbox_id}
+        if opencode_session_id:
+            data["opencodeSessionId"] = opencode_session_id
+        self.emit(EventType.READY, data)
+
+    def emit_snapshot_ready(self, opencode_session_id: str | None = None) -> None:
+        """Emit a snapshot ready event."""
+        data = {}
+        if opencode_session_id:
+            data["opencodeSessionId"] = opencode_session_id
+        self.emit(EventType.SNAPSHOT_READY, data)
+
     def close(self) -> None:
         """Close the HTTP client."""
         self.client.close()

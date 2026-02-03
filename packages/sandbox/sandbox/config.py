@@ -31,6 +31,10 @@ class EventType:
     GIT_SYNC = "git_sync"
     EXECUTION_COMPLETE = "execution_complete"
     HEARTBEAT = "heartbeat"
+    PUSH_COMPLETE = "push_complete"
+    PUSH_ERROR = "push_error"
+    READY = "ready"
+    SNAPSHOT_READY = "snapshot_ready"
 
 
 # Modal configuration
