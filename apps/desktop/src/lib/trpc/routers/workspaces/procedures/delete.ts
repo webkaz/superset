@@ -398,8 +398,10 @@ export const createDeleteProcedures = () => {
 					return { success: false, error: "Project not found" };
 				}
 
-				// Check worktree existence and run teardown before acquiring lock
-				// (these are read-only git ops / user scripts, not git mutations)
+				// Check worktree existence and run teardown before acquiring lock.
+				// Note: teardown runs user-defined shell commands (.superset/config.json)
+				// which could include git operations, but not git worktree mutations
+				// (which is what the project lock protects).
 				const exists = await worktreeExists(
 					project.mainRepoPath,
 					worktree.path,

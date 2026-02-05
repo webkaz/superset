@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { projects, worktrees } from "@superset/local-db";
 import { eq } from "drizzle-orm";
 import { track } from "main/lib/analytics";
@@ -100,8 +101,17 @@ export async function initializeWorkspaceWorktree({
 				}
 			}
 
-			// Post-lock: config copy and DB update don't need the git lock
+			// Post-lock: config copy and DB update don't need the git lock.
+			// A concurrent delete could remove the worktree between lock release
+			// and here, so check cancellation and worktree existence defensively.
 			if (manager.isCancellationRequested(workspaceId)) {
+				return;
+			}
+
+			if (!existsSync(worktreePath)) {
+				console.warn(
+					`[workspace-init] Worktree directory gone after creation (concurrent delete?): ${worktreePath}`,
+				);
 				return;
 			}
 
@@ -436,8 +446,17 @@ export async function initializeWorkspaceWorktree({
 			manager.releaseProjectLock(projectId);
 		}
 
-		// Post-lock: config copy and DB update don't need the git lock
+		// Post-lock: config copy and DB update don't need the git lock.
+		// A concurrent delete could remove the worktree between lock release
+		// and here, so check cancellation and worktree existence defensively.
 		if (manager.isCancellationRequested(workspaceId)) {
+			return;
+		}
+
+		if (!existsSync(worktreePath)) {
+			console.warn(
+				`[workspace-init] Worktree directory gone after creation (concurrent delete?): ${worktreePath}`,
+			);
 			return;
 		}
 
