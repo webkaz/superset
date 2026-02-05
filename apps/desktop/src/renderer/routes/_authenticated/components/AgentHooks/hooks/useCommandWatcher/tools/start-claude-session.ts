@@ -1,4 +1,3 @@
-import { posthog } from "renderer/lib/posthog";
 import { useWorkspaceInitStore } from "renderer/stores/workspace-init";
 import { z } from "zod";
 import type { CommandResult, ToolContext, ToolDefinition } from "./types";
@@ -52,10 +51,6 @@ async function execute(
 			projectId: pending?.projectId ?? projectId,
 			initialCommands: [...(pending?.initialCommands ?? []), params.command],
 			defaultPreset: pending?.defaultPreset ?? null,
-		});
-
-		posthog.capture("claude_session_started", {
-			workspace_id: result.workspace.id,
 		});
 
 		return {

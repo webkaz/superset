@@ -1,4 +1,3 @@
-import { posthog } from "renderer/lib/posthog";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import { z } from "zod";
 import type { CommandResult, ToolContext, ToolDefinition } from "./types";
@@ -29,10 +28,6 @@ async function execute(
 	if (!paneId) {
 		return { success: false, error: "Failed to add pane" };
 	}
-
-	posthog.capture("claude_subagent_started", {
-		workspace_id: activeWorkspaceId,
-	});
 
 	return {
 		success: true,
