@@ -13,6 +13,7 @@ import { setupAgentHooks } from "./lib/agent-setup";
 import { initAppState } from "./lib/app-state";
 import { setupAutoUpdater } from "./lib/auto-updater";
 import { localDb } from "./lib/local-db";
+import { outlit } from "./lib/outlit";
 import { ensureProjectIconsDir, getProjectIconPath } from "./lib/project-icons";
 import { initSentry } from "./lib/sentry";
 import { reconcileDaemonSessions } from "./lib/terminal";
@@ -139,7 +140,9 @@ app.on("before-quit", async (event) => {
 		}
 	}
 
+	// Quit confirmed or no confirmation needed - flush analytics and exit
 	isQuitting = true;
+	await outlit.shutdown();
 	disposeTray();
 	app.exit(0);
 });
