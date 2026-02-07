@@ -140,7 +140,8 @@ app.on("before-quit", async (event) => {
 		}
 	}
 
-	// Quit confirmed or no confirmation needed - flush analytics and exit
+	// Quit confirmed or no confirmation needed - exit immediately
+	// Let OS clean up child processes, tray, etc.
 	isQuitting = true;
 	await outlit.shutdown();
 	disposeTray();
