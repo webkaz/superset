@@ -299,13 +299,17 @@ export const createDeleteProcedures = () => {
 					throw new Error("Workspace not found");
 				}
 
+				// Must run before the async terminal kill so queries exclude
+				// this workspace while terminals are still shutting down.
+				markWorkspaceAsDeleting(input.id);
+				hideProjectIfNoWorkspaces(workspace.projectId);
+				updateActiveWorkspaceIfRemoved(input.id);
+
 				const terminalResult = await getWorkspaceRuntimeRegistry()
 					.getForWorkspaceId(input.id)
 					.terminal.killByWorkspaceId(input.id);
 
 				deleteWorkspace(input.id);
-				hideProjectIfNoWorkspaces(workspace.projectId);
-				updateActiveWorkspaceIfRemoved(input.id);
 
 				const terminalWarning =
 					terminalResult.failed > 0

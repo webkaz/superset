@@ -926,6 +926,24 @@ export const createProjectsRouter = (getWindow: () => BrowserWindow | null) => {
 					.where(eq(workspaces.projectId, input.id))
 					.all();
 
+				const closedWorkspaceIds = projectWorkspaces.map((w) => w.id);
+
+				// Must run before the async terminal kill so queries exclude
+				// these workspaces while terminals are still shutting down.
+				if (closedWorkspaceIds.length > 0) {
+					localDb
+						.update(workspaces)
+						.set({ deletingAt: Date.now() })
+						.where(inArray(workspaces.id, closedWorkspaceIds))
+						.run();
+				}
+
+				localDb
+					.update(projects)
+					.set({ tabOrder: null })
+					.where(eq(projects.id, input.id))
+					.run();
+
 				let totalFailed = 0;
 				const registry = getWorkspaceRuntimeRegistry();
 				for (const workspace of projectWorkspaces) {
@@ -934,21 +952,12 @@ export const createProjectsRouter = (getWindow: () => BrowserWindow | null) => {
 					totalFailed += terminalResult.failed;
 				}
 
-				const closedWorkspaceIds = projectWorkspaces.map((w) => w.id);
-
 				if (closedWorkspaceIds.length > 0) {
 					localDb
 						.delete(workspaces)
 						.where(inArray(workspaces.id, closedWorkspaceIds))
 						.run();
 				}
-
-				// Hide the project by setting tabOrder to null
-				localDb
-					.update(projects)
-					.set({ tabOrder: null })
-					.where(eq(projects.id, input.id))
-					.run();
 
 				// Update active workspace if it was in this project
 				const currentSettings = localDb.select().from(settings).get();
