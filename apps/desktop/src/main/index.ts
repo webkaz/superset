@@ -1,6 +1,5 @@
 import path from "node:path";
-import { settings, workspaces, worktrees } from "@superset/local-db";
-import { eq, isNull } from "drizzle-orm";
+import { settings } from "@superset/local-db";
 import { app, BrowserWindow, dialog } from "electron";
 import { makeAppSetup } from "lib/electron-app/factories/app/setup";
 import {
@@ -8,6 +7,8 @@ import {
 	parseAuthDeepLink,
 } from "lib/trpc/routers/auth/utils/auth-functions";
 import { DEFAULT_CONFIRM_ON_QUIT, PROTOCOL_SCHEME } from "shared/constants";
+import { getWorkspace } from "lib/trpc/routers/workspaces/utils/db-helpers";
+import { getWorkspacePath } from "lib/trpc/routers/workspaces/utils/worktree";
 import { setupAgentHooks } from "./lib/agent-setup";
 import { initAppState } from "./lib/app-state";
 import { setupAutoUpdater } from "./lib/auto-updater";
@@ -212,36 +213,30 @@ if (process.env.NODE_ENV === "development") {
 	parentCheckInterval.unref();
 }
 
-function startFileWatchersForActiveWorkspaces(): void {
+function startFileWatcherForActiveWorkspace(): void {
 	try {
-		const activeWorkspaces = localDb
-			.select({
-				id: workspaces.id,
-				worktreePath: worktrees.path,
-			})
-			.from(workspaces)
-			.innerJoin(worktrees, eq(workspaces.worktreeId, worktrees.id))
-			.where(isNull(workspaces.deletingAt))
-			.all();
+		const row = localDb.select().from(settings).get();
+		const workspaceId = row?.lastActiveWorkspaceId;
+		if (!workspaceId) return;
 
-		for (const ws of activeWorkspaces) {
-			fsWatcher
-				.watch({ workspaceId: ws.id, rootPath: ws.worktreePath })
-				.catch((err) => {
-					console.error(
-						`[main] Failed to start fs watcher for workspace ${ws.id}:`,
-						err,
-					);
-				});
-		}
+		const workspace = getWorkspace(workspaceId);
+		if (!workspace) return;
 
-		if (activeWorkspaces.length > 0) {
-			console.log(
-				`[main] Started fs watchers for ${activeWorkspaces.length} active workspace(s)`,
+		const rootPath = getWorkspacePath(workspace);
+		if (!rootPath) return;
+
+		fsWatcher.switchTo({ workspaceId, rootPath }).catch((err) => {
+			console.error(
+				`[main] Failed to start fs watcher for active workspace ${workspaceId}:`,
+				err,
 			);
-		}
+		});
+
+		console.log(
+			`[main] Started fs watcher for active workspace ${workspaceId}`,
+		);
 	} catch (error) {
-		console.error("[main] Failed to start fs watchers on boot:", error);
+		console.error("[main] Failed to start fs watcher on boot:", error);
 	}
 }
 
@@ -272,8 +267,8 @@ if (!gotTheLock) {
 		// Must happen BEFORE renderer restore runs
 		await reconcileDaemonSessions();
 
-		// Start filesystem watchers for all active workspaces
-		startFileWatchersForActiveWorkspaces();
+		// Start filesystem watcher for the active workspace
+		startFileWatcherForActiveWorkspace();
 
 		try {
 			setupAgentHooks();

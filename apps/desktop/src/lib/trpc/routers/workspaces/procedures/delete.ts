@@ -24,6 +24,7 @@ import {
 	worktreeExists,
 } from "../utils/git";
 import { removeWorktreeFromDisk, runTeardown } from "../utils/teardown";
+import { getWorkspacePath } from "../utils/worktree";
 
 export const createDeleteProcedures = () => {
 	return router({
@@ -164,7 +165,7 @@ export const createDeleteProcedures = () => {
 					`[workspace/delete] Starting deletion of "${workspace.name}" (${input.id})`,
 				);
 
-				const watcherRootPath = fsWatcher.getRootPath(input.id);
+				const savedRootPath = getWorkspacePath(workspace);
 				await fsWatcher.unwatch(input.id);
 				markWorkspaceAsDeleting(input.id);
 				updateActiveWorkspaceIfRemoved(input.id);
@@ -185,9 +186,9 @@ export const createDeleteProcedures = () => {
 							error,
 						);
 						clearWorkspaceDeletingStatus(input.id);
-						if (watcherRootPath) {
+						if (savedRootPath) {
 							fsWatcher
-								.watch({ workspaceId: input.id, rootPath: watcherRootPath })
+								.switchTo({ workspaceId: input.id, rootPath: savedRootPath })
 								.catch((err) => {
 									console.error(
 										"[workspace/delete] Failed to re-attach watcher:",
@@ -246,9 +247,9 @@ export const createDeleteProcedures = () => {
 						teardownResult.error,
 					);
 					clearWorkspaceDeletingStatus(input.id);
-					if (watcherRootPath) {
+					if (savedRootPath) {
 						fsWatcher
-							.watch({ workspaceId: input.id, rootPath: watcherRootPath })
+							.switchTo({ workspaceId: input.id, rootPath: savedRootPath })
 							.catch((err) => {
 								console.error(
 									"[workspace/delete] Failed to re-attach watcher:",
@@ -273,9 +274,9 @@ export const createDeleteProcedures = () => {
 						});
 						if (!removeResult.success) {
 							clearWorkspaceDeletingStatus(input.id);
-							if (watcherRootPath) {
+							if (savedRootPath) {
 								fsWatcher
-									.watch({ workspaceId: input.id, rootPath: watcherRootPath })
+									.switchTo({ workspaceId: input.id, rootPath: savedRootPath })
 									.catch((err) => {
 										console.error(
 											"[workspace/delete] Failed to re-attach watcher:",

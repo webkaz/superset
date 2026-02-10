@@ -52,6 +52,12 @@ fsWatcher.on("batch", (batch: FileSystemBatchEvent) => {
 	}
 });
 
+// Clear all caches when switching workspaces (stale entries from previous workspace are useless)
+fsWatcher.on("switched", () => {
+	searchIndexCache.clear();
+	searchIndexBuilds.clear();
+});
+
 function getSearchCacheKey({
 	rootPath,
 	includeHidden,

@@ -54,14 +54,14 @@ const WorkspaceInitManagerClass = Object.getPrototypeOf(
 let fsWatcher: typeof fsWatcherMod.fsWatcher;
 let manager: typeof initManagerMod.workspaceInitManager;
 
-/** Flush microtask queue so watch() progresses past its awaits to subscribe. */
+/** Flush microtask queue so switchTo() progresses past its awaits to subscribe. */
 function flushMicrotasks() {
 	return new Promise<void>((r) => setTimeout(r, 0));
 }
 
 /**
  * Wait until at least `count` subscriptions are pending (with a short timeout).
- * Needed because watch() has two awaits before calling subscribe.
+ * Needed because switchTo() has two awaits before calling subscribe.
  */
 async function waitForPendingSubscriptions(count = 1) {
 	const deadline = Date.now() + 2000;
@@ -106,14 +106,14 @@ afterEach(async () => {
 	while (pendingSubscriptions.length > 0) {
 		resolveNextSubscription();
 	}
-	await fsWatcher.unwatchAll();
+	await fsWatcher.stop();
 });
 
 describe("FsWatcher lifecycle integration", () => {
-	describe("happy path: init watches, delete unwatches", () => {
-		it("after delete, no active watcher remains", async () => {
-			// Simulate init: watch the workspace
-			const watchPromise = fsWatcher.watch({
+	describe("happy path: switchTo watches, unwatch stops", () => {
+		it("after unwatch, no active watcher remains", async () => {
+			// Simulate init: switch to the workspace
+			const switchPromise = fsWatcher.switchTo({
 				workspaceId: "ws-1",
 				rootPath: "/tmp/project",
 			});
@@ -121,25 +121,57 @@ describe("FsWatcher lifecycle integration", () => {
 			// Wait for subscribe to be called, then resolve it
 			await waitForPendingSubscriptions(1);
 			resolveNextSubscription();
-			await watchPromise;
+			await switchPromise;
 
 			expect(fsWatcher.getRootPath("ws-1")).toBe("/tmp/project");
+			expect(fsWatcher.getActiveWorkspaceId()).toBe("ws-1");
 
 			// Simulate delete: unwatch
 			await fsWatcher.unwatch("ws-1");
 
 			expect(fsWatcher.getRootPath("ws-1")).toBeUndefined();
+			expect(fsWatcher.getActiveWorkspaceId()).toBeUndefined();
 			expect(unsubscribeCalls).toHaveLength(1);
 		});
 	});
 
-	describe("race: init watch resolves after delete unwatch", () => {
+	describe("switchTo properly cleans up old watcher", () => {
+		it("stops old watcher before starting new one", async () => {
+			// Start watching ws-1
+			const switch1 = fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/a",
+			});
+			await waitForPendingSubscriptions(1);
+			resolveNextSubscription();
+			await switch1;
+
+			expect(fsWatcher.getActiveWorkspaceId()).toBe("ws-1");
+
+			// Switch to ws-2 — should stop ws-1 first
+			const switch2 = fsWatcher.switchTo({
+				workspaceId: "ws-2",
+				rootPath: "/tmp/b",
+			});
+			await waitForPendingSubscriptions(1);
+			resolveNextSubscription();
+			await switch2;
+
+			expect(fsWatcher.getActiveWorkspaceId()).toBe("ws-2");
+			expect(fsWatcher.getRootPath("ws-1")).toBeUndefined();
+			expect(fsWatcher.getRootPath("ws-2")).toBe("/tmp/b");
+			// Old subscription was unsubscribed
+			expect(unsubscribeCalls).toHaveLength(1);
+		});
+	});
+
+	describe("race: init switchTo resolves after delete unwatch", () => {
 		it("second unwatch after waitForInit cleans up the late watcher", async () => {
 			// 1. Start an init job
 			manager.startJob("ws-1", "proj-1");
 
-			// 2. Start watching (subscribe is deferred — not yet resolved)
-			const watchPromise = fsWatcher.watch({
+			// 2. Start switching (subscribe is deferred — not yet resolved)
+			const switchPromise = fsWatcher.switchTo({
 				workspaceId: "ws-1",
 				rootPath: "/tmp/project",
 			});
@@ -148,7 +180,7 @@ describe("FsWatcher lifecycle integration", () => {
 			await waitForPendingSubscriptions(1);
 
 			// 3. Meanwhile, the delete flow runs:
-			//    a) First unwatch — but watch hasn't set state yet (subscribe pending)
+			//    a) First unwatch — but switchTo hasn't set state yet (subscribe pending)
 			await fsWatcher.unwatch("ws-1");
 			expect(fsWatcher.getRootPath("ws-1")).toBeUndefined();
 
@@ -156,11 +188,11 @@ describe("FsWatcher lifecycle integration", () => {
 			manager.cancel("ws-1");
 			expect(manager.isCancellationRequested("ws-1")).toBe(true);
 
-			// 4. Now the deferred subscribe resolves (init's watch completes late)
+			// 4. Now the deferred subscribe resolves (init's switchTo completes late)
 			resolveNextSubscription();
-			await watchPromise;
+			await switchPromise;
 
-			// The watcher is now in the map (the late watch completed)
+			// The watcher is now active (the late switchTo completed)
 			expect(fsWatcher.getRootPath("ws-1")).toBe("/tmp/project");
 
 			// 5. Finalize the init job (allows waitForInit to unblock)
@@ -170,28 +202,29 @@ describe("FsWatcher lifecycle integration", () => {
 			// 6. The delete flow does a second unwatch to clean up the late watcher
 			await fsWatcher.unwatch("ws-1");
 
-			// 7. Assert: watcher map is empty for ws-1
+			// 7. Assert: no active watcher
 			expect(fsWatcher.getRootPath("ws-1")).toBeUndefined();
+			expect(fsWatcher.getActiveWorkspaceId()).toBeUndefined();
 			expect(unsubscribeCalls).toHaveLength(1); // Only one actual unsubscribe (the late one)
 		});
 	});
 
-	describe("cancellation guard: watch skipped when cancelled", () => {
-		it("does not watch when cancellation was requested before watch", async () => {
+	describe("cancellation guard: switchTo skipped when cancelled", () => {
+		it("does not switch when cancellation was requested before switchTo", async () => {
 			manager.startJob("ws-1", "proj-1");
 			manager.cancel("ws-1");
 
-			// The init flow should check isCancellationRequested before calling watch.
+			// The init flow should check isCancellationRequested before calling switchTo.
 			// Simulate what a well-behaved init flow does:
 			if (manager.isCancellationRequested("ws-1")) {
-				// Skip the watch — this is the guard
+				// Skip the switchTo — this is the guard
 				manager.finalizeJob("ws-1");
 			}
 
 			// No subscribe call should have been made
 			expect(pendingSubscriptions).toHaveLength(0);
 			expect(subscribeCallCount).toBe(0);
-			expect(fsWatcher.getRootPath("ws-1")).toBeUndefined();
+			expect(fsWatcher.getActiveWorkspaceId()).toBeUndefined();
 		});
 
 		it("isCancellationRequested remains true through the full delete flow", async () => {
@@ -210,14 +243,14 @@ describe("FsWatcher lifecycle integration", () => {
 
 	describe("re-attach on failed deletion", () => {
 		it("re-attaches watcher using saved rootPath when teardown fails", async () => {
-			// 1. Init: watch succeeds
-			const watchPromise = fsWatcher.watch({
+			// 1. Init: switchTo succeeds
+			const switchPromise = fsWatcher.switchTo({
 				workspaceId: "ws-1",
 				rootPath: "/tmp/project",
 			});
 			await waitForPendingSubscriptions(1);
 			resolveNextSubscription();
-			await watchPromise;
+			await switchPromise;
 
 			const savedRootPath = fsWatcher.getRootPath("ws-1");
 			expect(savedRootPath).toBe("/tmp/project");
@@ -231,7 +264,7 @@ describe("FsWatcher lifecycle integration", () => {
 
 			// 4. Re-attach watcher using the saved rootPath
 			if (deletionFailed && savedRootPath) {
-				const reattachPromise = fsWatcher.watch({
+				const reattachPromise = fsWatcher.switchTo({
 					workspaceId: "ws-1",
 					rootPath: savedRootPath,
 				});
@@ -242,29 +275,9 @@ describe("FsWatcher lifecycle integration", () => {
 
 			// 5. Watcher is back
 			expect(fsWatcher.getRootPath("ws-1")).toBe("/tmp/project");
+			expect(fsWatcher.getActiveWorkspaceId()).toBe("ws-1");
 			// Total subscribes: 2 (original + re-attach)
 			expect(subscribeCallCount).toBe(2);
-		});
-	});
-
-	describe("concurrent workspace operations", () => {
-		it("handles multiple workspaces independently", async () => {
-			// Watch two workspaces concurrently
-			const w1 = fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/a" });
-			const w2 = fsWatcher.watch({ workspaceId: "ws-2", rootPath: "/tmp/b" });
-
-			await waitForPendingSubscriptions(2);
-			resolveNextSubscription();
-			resolveNextSubscription();
-			await Promise.all([w1, w2]);
-
-			expect(fsWatcher.getRootPath("ws-1")).toBe("/tmp/a");
-			expect(fsWatcher.getRootPath("ws-2")).toBe("/tmp/b");
-
-			// Unwatch only ws-1
-			await fsWatcher.unwatch("ws-1");
-			expect(fsWatcher.getRootPath("ws-1")).toBeUndefined();
-			expect(fsWatcher.getRootPath("ws-2")).toBe("/tmp/b");
 		});
 	});
 });

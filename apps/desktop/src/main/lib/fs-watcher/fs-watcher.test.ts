@@ -55,13 +55,16 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-	await fsWatcher.unwatchAll();
+	await fsWatcher.stop();
 });
 
 describe("FsWatcher", () => {
-	describe("watch()", () => {
+	describe("switchTo()", () => {
 		it("creates a subscription with rootPath and ignore dirs", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 
 			expect(subscribeCalls).toHaveLength(1);
 			expect(subscribeCalls[0].rootPath).toBe("/tmp/project");
@@ -78,22 +81,61 @@ describe("FsWatcher", () => {
 			});
 		});
 
-		it("replaces existing watcher by unsubscribing old one first", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/old" });
+		it("no-ops when switching to the same workspace", async () => {
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
+			expect(subscribeCalls).toHaveLength(1);
+
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
+			// Should NOT create a second subscription
+			expect(subscribeCalls).toHaveLength(1);
+			expect(unsubscribeCalls).toHaveLength(0);
+		});
+
+		it("stops old watcher when switching to a different workspace", async () => {
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/old",
+			});
 			expect(subscribeCalls).toHaveLength(1);
 			expect(unsubscribeCalls).toHaveLength(0);
 
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/new" });
+			await fsWatcher.switchTo({
+				workspaceId: "ws-2",
+				rootPath: "/tmp/new",
+			});
 			expect(subscribeCalls).toHaveLength(2);
 			// Old subscription should have been unsubscribed
 			expect(unsubscribeCalls).toHaveLength(1);
 			expect(subscribeCalls[1].rootPath).toBe("/tmp/new");
 		});
+
+		it("emits 'switched' event with new workspace ID", async () => {
+			const switchedIds: string[] = [];
+			fsWatcher.on("switched", (id: string) => {
+				switchedIds.push(id);
+			});
+
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
+
+			expect(switchedIds).toEqual(["ws-1"]);
+		});
 	});
 
 	describe("unwatch()", () => {
-		it("calls unsubscribe and removes from internal map", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+		it("stops the active watcher if ID matches", async () => {
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 			expect(fsWatcher.getRootPath("ws-1")).toBe("/tmp/project");
 
 			await fsWatcher.unwatch("ws-1");
@@ -101,36 +143,77 @@ describe("FsWatcher", () => {
 			expect(fsWatcher.getRootPath("ws-1")).toBeUndefined();
 		});
 
-		it("no-ops for unknown workspace id", async () => {
-			// Should not throw
+		it("no-ops for non-active workspace id", async () => {
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
+
+			await fsWatcher.unwatch("ws-other");
+			expect(unsubscribeCalls).toHaveLength(0);
+			// ws-1 is still active
+			expect(fsWatcher.getRootPath("ws-1")).toBe("/tmp/project");
+		});
+
+		it("no-ops when no watcher is active", async () => {
 			await fsWatcher.unwatch("nonexistent");
 			expect(unsubscribeCalls).toHaveLength(0);
 		});
 	});
 
-	describe("unwatchAll()", () => {
-		it("unsubscribes all watchers", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/a" });
-			await fsWatcher.watch({ workspaceId: "ws-2", rootPath: "/tmp/b" });
-			await fsWatcher.watch({ workspaceId: "ws-3", rootPath: "/tmp/c" });
+	describe("stop()", () => {
+		it("stops the active watcher", async () => {
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/a",
+			});
 
-			await fsWatcher.unwatchAll();
+			await fsWatcher.stop();
 
-			expect(unsubscribeCalls).toHaveLength(3);
+			expect(unsubscribeCalls).toHaveLength(1);
 			expect(fsWatcher.getRootPath("ws-1")).toBeUndefined();
-			expect(fsWatcher.getRootPath("ws-2")).toBeUndefined();
-			expect(fsWatcher.getRootPath("ws-3")).toBeUndefined();
+			expect(fsWatcher.getActiveWorkspaceId()).toBeUndefined();
+		});
+
+		it("no-ops when no watcher is active", async () => {
+			await fsWatcher.stop();
+			expect(unsubscribeCalls).toHaveLength(0);
 		});
 	});
 
 	describe("getRootPath()", () => {
-		it("returns stored path for watched workspace", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+		it("returns stored path for active workspace", async () => {
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 			expect(fsWatcher.getRootPath("ws-1")).toBe("/tmp/project");
 		});
 
-		it("returns undefined for unwatched workspace", () => {
+		it("returns undefined for non-active workspace", async () => {
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
+			expect(fsWatcher.getRootPath("ws-other")).toBeUndefined();
+		});
+
+		it("returns undefined when no watcher is active", () => {
 			expect(fsWatcher.getRootPath("ws-unknown")).toBeUndefined();
+		});
+	});
+
+	describe("getActiveWorkspaceId()", () => {
+		it("returns the active workspace ID", async () => {
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
+			expect(fsWatcher.getActiveWorkspaceId()).toBe("ws-1");
+		});
+
+		it("returns undefined when no watcher is active", () => {
+			expect(fsWatcher.getActiveWorkspaceId()).toBeUndefined();
 		});
 	});
 
@@ -142,7 +225,10 @@ describe("FsWatcher", () => {
 		}
 
 		it("batches events within debounce window into a single batch", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 
 			const batches: FileSystemBatchEvent[] = [];
 			fsWatcher.on("batch", (batch: FileSystemBatchEvent) => {
@@ -166,7 +252,10 @@ describe("FsWatcher", () => {
 		});
 
 		it("resets debounce timer on new events", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 
 			const batches: FileSystemBatchEvent[] = [];
 			fsWatcher.on("batch", (batch: FileSystemBatchEvent) => {
@@ -190,7 +279,10 @@ describe("FsWatcher", () => {
 		});
 
 		it("forces flush at max batch window regardless of new events", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 
 			const batches: FileSystemBatchEvent[] = [];
 			fsWatcher.on("batch", (batch: FileSystemBatchEvent) => {
@@ -214,7 +306,10 @@ describe("FsWatcher", () => {
 		});
 
 		it("deduplicates by path with last write wins", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 
 			const batches: FileSystemBatchEvent[] = [];
 			fsWatcher.on("batch", (batch: FileSystemBatchEvent) => {
@@ -234,7 +329,10 @@ describe("FsWatcher", () => {
 		});
 
 		it("emits correct batch event shape", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 
 			const batches: FileSystemBatchEvent[] = [];
 			fsWatcher.on("batch", (batch: FileSystemBatchEvent) => {
@@ -257,7 +355,10 @@ describe("FsWatcher", () => {
 		});
 
 		it("clears pending events after flush", async () => {
-			await fsWatcher.watch({ workspaceId: "ws-1", rootPath: "/tmp/project" });
+			await fsWatcher.switchTo({
+				workspaceId: "ws-1",
+				rootPath: "/tmp/project",
+			});
 
 			const batches: FileSystemBatchEvent[] = [];
 			fsWatcher.on("batch", (batch: FileSystemBatchEvent) => {

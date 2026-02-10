@@ -19,7 +19,8 @@ const IGNORE_DIRS = [
 	"coverage",
 ];
 
-interface WorkspaceWatcherState {
+interface WatcherState {
+	workspaceId: string;
 	subscription: AsyncSubscription;
 	rootPath: string;
 	pendingEvents: Map<string, FileSystemChangeEvent>;
@@ -41,26 +42,32 @@ function mapEventType(type: Event["type"]): FileSystemChangeEvent["type"] {
 }
 
 class FsWatcher extends EventEmitter {
-	private watchers = new Map<string, WorkspaceWatcherState>();
+	private active: WatcherState | null = null;
 
 	/**
-	 * Start watching a workspace directory.
+	 * Switch to watching a different workspace directory.
+	 * If already watching the same workspace, this is a no-op.
+	 * Flushes + stops the old watcher before starting the new one.
 	 *
 	 * Called from:
-	 * - workspace-init.ts (on workspace ready)
-	 * - main/index.ts (on app boot for existing workspaces)
-	 *
-	 * Paired with unwatch() in procedures/delete.ts (on workspace delete/close).
+	 * - setLastActiveWorkspace() in db-helpers.ts (on workspace switch)
+	 * - workspace-init.ts (on workspace ready, if still active)
+	 * - main/index.ts (on app boot for the active workspace)
 	 */
-	async watch({
+	async switchTo({
 		workspaceId,
 		rootPath,
 	}: {
 		workspaceId: string;
 		rootPath: string;
 	}): Promise<void> {
-		// Clean up existing watcher for this workspace
-		await this.unwatch(workspaceId);
+		// No-op if already watching this workspace
+		if (this.active?.workspaceId === workspaceId) {
+			return;
+		}
+
+		// Stop old watcher (flush pending events first)
+		await this.stop();
 
 		// Dynamic import to avoid issues with native module bundling
 		const watcher = await import("@parcel/watcher");
@@ -83,22 +90,61 @@ class FsWatcher extends EventEmitter {
 			},
 		);
 
-		this.watchers.set(workspaceId, {
+		this.active = {
+			workspaceId,
 			subscription,
 			rootPath,
 			pendingEvents: new Map(),
 			debounceTimer: null,
 			maxWindowTimer: null,
-		});
+		};
+
+		this.emit("switched", workspaceId);
 
 		console.log(
 			`[fs-watcher] Watching workspace ${workspaceId} at ${rootPath}`,
 		);
 	}
 
+	/**
+	 * Stop watching the active workspace if it matches the given ID.
+	 * No-op if the given workspace is not the active one.
+	 */
 	async unwatch(workspaceId: string): Promise<void> {
-		const state = this.watchers.get(workspaceId);
+		if (!this.active || this.active.workspaceId !== workspaceId) return;
+		await this.stopInternal();
+	}
+
+	/**
+	 * Stop the active watcher (flush pending events, unsubscribe, clear state).
+	 */
+	async stop(): Promise<void> {
+		await this.stopInternal();
+	}
+
+	/**
+	 * Get the root path for a workspace, only if it's the active one.
+	 */
+	getRootPath(workspaceId: string): string | undefined {
+		if (this.active?.workspaceId === workspaceId) {
+			return this.active.rootPath;
+		}
+		return undefined;
+	}
+
+	/**
+	 * Get the currently active workspace ID.
+	 */
+	getActiveWorkspaceId(): string | undefined {
+		return this.active?.workspaceId;
+	}
+
+	private async stopInternal(): Promise<void> {
+		const state = this.active;
 		if (!state) return;
+
+		// Flush any pending events before stopping
+		this.flush();
 
 		if (state.debounceTimer) {
 			clearTimeout(state.debounceTimer);
@@ -108,18 +154,11 @@ class FsWatcher extends EventEmitter {
 		}
 
 		await state.subscription.unsubscribe();
-		this.watchers.delete(workspaceId);
+		this.active = null;
 
-		console.log(`[fs-watcher] Stopped watching workspace ${workspaceId}`);
-	}
-
-	async unwatchAll(): Promise<void> {
-		const ids = [...this.watchers.keys()];
-		await Promise.all(ids.map((id) => this.unwatch(id)));
-	}
-
-	getRootPath(workspaceId: string): string | undefined {
-		return this.watchers.get(workspaceId)?.rootPath;
+		console.log(
+			`[fs-watcher] Stopped watching workspace ${state.workspaceId}`,
+		);
 	}
 
 	private handleEvents(
@@ -127,8 +166,9 @@ class FsWatcher extends EventEmitter {
 		rootPath: string,
 		events: Event[],
 	): void {
-		const state = this.watchers.get(workspaceId);
-		if (!state) return;
+		if (!this.active || this.active.workspaceId !== workspaceId) return;
+
+		const state = this.active;
 
 		for (const event of events) {
 			const relativePath = path.relative(rootPath, event.path);
@@ -147,19 +187,19 @@ class FsWatcher extends EventEmitter {
 		}
 
 		state.debounceTimer = setTimeout(() => {
-			this.flush(workspaceId);
+			this.flush();
 		}, DEBOUNCE_MS);
 
 		// Start max-window timer on first event in a batch
 		if (!state.maxWindowTimer) {
 			state.maxWindowTimer = setTimeout(() => {
-				this.flush(workspaceId);
+				this.flush();
 			}, MAX_BATCH_WINDOW_MS);
 		}
 	}
 
-	private flush(workspaceId: string): void {
-		const state = this.watchers.get(workspaceId);
+	private flush(): void {
+		const state = this.active;
 		if (!state || state.pendingEvents.size === 0) return;
 
 		if (state.debounceTimer) {
@@ -172,7 +212,7 @@ class FsWatcher extends EventEmitter {
 		}
 
 		const batch: FileSystemBatchEvent = {
-			workspaceId,
+			workspaceId: state.workspaceId,
 			events: [...state.pendingEvents.values()],
 			timestamp: Date.now(),
 		};
