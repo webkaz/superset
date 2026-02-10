@@ -2,12 +2,16 @@
 
 import { OutlitProvider } from "@outlit/browser/react";
 
-import { getOutlit } from "@/lib/outlit";
+import { env } from "@/env";
 
 export function OutlitProviderWrapper({
 	children,
 }: {
 	children: React.ReactNode;
 }) {
-	return <OutlitProvider client={getOutlit()}>{children}</OutlitProvider>;
+	return (
+		<OutlitProvider publicKey={env.NEXT_PUBLIC_OUTLIT_KEY} trackPageviews>
+			{children}
+		</OutlitProvider>
+	);
 }

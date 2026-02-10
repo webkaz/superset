@@ -1,5 +1,6 @@
 "use client";
 
+import { useOutlit } from "@outlit/browser/react";
 import { Button } from "@superset/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
@@ -7,9 +8,9 @@ import posthog from "posthog-js";
 import { useEffect, useState } from "react";
 
 import { ANALYTICS_CONSENT_KEY } from "@/lib/constants";
-import { getOutlit } from "@/lib/outlit";
 
 export function CookieConsent() {
+	const { enableTracking, disableTracking } = useOutlit();
 	const [showBanner, setShowBanner] = useState(false);
 
 	useEffect(() => {
@@ -23,13 +24,13 @@ export function CookieConsent() {
 		localStorage.setItem(ANALYTICS_CONSENT_KEY, "accepted");
 		setShowBanner(false);
 		posthog.opt_in_capturing();
-		getOutlit().enableTracking();
+		enableTracking();
 	};
 
 	const handleOptOut = () => {
 		localStorage.setItem(ANALYTICS_CONSENT_KEY, "declined");
 		posthog.opt_out_capturing();
-		getOutlit().disableTracking();
+		disableTracking();
 		setShowBanner(false);
 	};
 

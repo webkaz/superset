@@ -6,12 +6,16 @@ import { ThemeProvider } from "next-themes";
 import posthog from "posthog-js";
 import { PostHogProvider } from "posthog-js/react";
 
-import { getOutlit } from "@/lib/outlit";
+import { env } from "@/env";
 
 export function Providers({ children }: { children: React.ReactNode }) {
 	return (
 		<PostHogProvider client={posthog}>
-			<OutlitBrowserProvider client={getOutlit()}>
+			<OutlitBrowserProvider
+				publicKey={env.NEXT_PUBLIC_OUTLIT_KEY}
+				trackPageviews
+				trackForms
+			>
 				<ThemeProvider
 					attribute="class"
 					defaultTheme="dark"
