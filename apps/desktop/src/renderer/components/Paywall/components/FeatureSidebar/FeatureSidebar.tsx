@@ -86,7 +86,7 @@ function FeatureButton({ feature, isSelected, onSelect }: FeatureButtonProps) {
 				</span>
 				{feature.comingSoon && (
 					<span className="text-[11px] text-muted-foreground font-normal">
-						Coming Soon
+						(Coming Soon)
 					</span>
 				)}
 			</span>

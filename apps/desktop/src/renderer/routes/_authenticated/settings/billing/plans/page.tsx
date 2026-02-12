@@ -335,7 +335,7 @@ function PlansPage() {
 
 	const highlightColumnIndex = 1;
 	const highlightColumnStart = highlightColumnIndex + 2;
-	const gridColumnsClass = "grid grid-cols-[180px_repeat(3,_1fr)]";
+	const gridColumnsClass = "grid grid-cols-[240px_repeat(3,_1fr)]";
 
 	return (
 		<div className="p-6 max-w-7xl w-full">
