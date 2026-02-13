@@ -134,6 +134,14 @@ export async function MainWindow() {
 		});
 	}
 
+	if (env.NODE_ENV === "development") {
+		const { createAutomationServer } = await import("@superset/desktop-mcp");
+		createAutomationServer({
+			getWindow,
+			port: env.DESKTOP_AUTOMATION_PORT,
+		});
+	}
+
 	const server = notificationsApp.listen(
 		env.DESKTOP_NOTIFICATIONS_PORT,
 		"127.0.0.1",
