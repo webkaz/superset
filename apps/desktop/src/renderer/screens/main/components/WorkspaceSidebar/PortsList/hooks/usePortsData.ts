@@ -1,9 +1,11 @@
 import { toast } from "@superset/ui/sonner";
 import { useEffect, useMemo, useRef } from "react";
 import { electronTrpc } from "renderer/lib/electron-trpc";
-import { usePortsStore } from "renderer/stores";
 import type { MergedPort } from "shared/types";
 import { mergePorts } from "../utils";
+
+/** Poll interval for detected ports — matches the port scanner's scan cycle */
+const PORTS_REFETCH_INTERVAL_MS = 2500;
 
 export interface MergedWorkspaceGroup {
 	workspaceId: string;
@@ -13,10 +15,6 @@ export interface MergedWorkspaceGroup {
 
 export function usePortsData() {
 	const { data: allWorkspaces } = electronTrpc.workspaces.getAll.useQuery();
-	const ports = usePortsStore((s) => s.ports);
-	const setPorts = usePortsStore((s) => s.setPorts);
-	const addPort = usePortsStore((s) => s.addPort);
-	const removePort = usePortsStore((s) => s.removePort);
 
 	const utils = electronTrpc.useUtils();
 
@@ -30,23 +28,21 @@ export function usePortsData() {
 		},
 	});
 
-	const { data: initialPorts } = electronTrpc.ports.getAll.useQuery();
-
-	useEffect(() => {
-		if (initialPorts) {
-			setPorts(initialPorts);
-		}
-	}, [initialPorts, setPorts]);
+	// Use the query as the single source of truth for detected ports.
+	// refetchInterval keeps the UI in sync with the port scanner.
+	// The subscription triggers immediate refetches on port add/remove events.
+	const { data: detectedPorts } = electronTrpc.ports.getAll.useQuery(
+		undefined,
+		{ refetchInterval: PORTS_REFETCH_INTERVAL_MS },
+	);
 
 	electronTrpc.ports.subscribe.useSubscription(undefined, {
-		onData: (event) => {
-			if (event.type === "add") {
-				addPort(event.port);
-			} else if (event.type === "remove") {
-				removePort(event.port.paneId, event.port.port);
-			}
+		onData: () => {
+			utils.ports.getAll.invalidate();
 		},
 	});
+
+	const ports = detectedPorts ?? [];
 
 	const workspaceNames = useMemo(() => {
 		if (!allWorkspaces) return {};
