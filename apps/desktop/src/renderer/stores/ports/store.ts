@@ -2,7 +2,6 @@ import { create } from "zustand";
 import { devtools, persist } from "zustand/middleware";
 
 interface PortsState {
-	// UI preferences (persisted)
 	isListCollapsed: boolean;
 
 	setListCollapsed: (collapsed: boolean) => void;

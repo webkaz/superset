@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 import type { EnrichedPort } from "shared/types";
 
-/** Poll interval for detected ports — matches the port scanner's scan cycle */
+/** Matches the port scanner's scan cycle in port-manager.ts */
 const PORTS_REFETCH_INTERVAL_MS = 2500;
 
 export interface WorkspacePortGroup {

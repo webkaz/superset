@@ -13,9 +13,6 @@ type PortEvent =
 	| { type: "add"; port: DetectedPort }
 	| { type: "remove"; port: DetectedPort };
 
-/**
- * Get port → label lookup for a worktree path by loading its ports.json.
- */
 function getLabelsForPath(worktreePath: string): Map<number, string> | null {
 	const result = loadStaticPorts(worktreePath);
 	if (!result.exists || result.error || !result.ports) return null;
@@ -32,7 +29,6 @@ export const createPortsRouter = () => {
 		getAll: publicProcedure.query((): EnrichedPort[] => {
 			const detectedPorts = portManager.getAllPorts();
 
-			// Cache per workspace ID: resolve workspace → path → labels once
 			const labelCache = new Map<string, Map<number, string> | null>();
 
 			return detectedPorts.map((port) => {

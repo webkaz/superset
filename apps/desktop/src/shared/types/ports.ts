@@ -20,10 +20,6 @@ export interface StaticPortsResult {
 	error: string | null;
 }
 
-/** A detected port enriched with its static label (from ports.json) */
 export interface EnrichedPort extends DetectedPort {
 	label: string | null;
 }
-
-/** @deprecated Use EnrichedPort instead */
-export type MergedPort = EnrichedPort;
