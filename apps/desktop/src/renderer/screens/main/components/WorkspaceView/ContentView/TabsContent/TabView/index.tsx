@@ -19,6 +19,7 @@ import {
 	extractPaneIdsFromLayout,
 } from "renderer/stores/tabs/utils";
 import { useTheme } from "renderer/stores/theme";
+import { BrowserPane } from "./BrowserPane";
 import { ChatPane } from "./ChatPane";
 import { FileViewerPane } from "./FileViewerPane";
 import { TabPane } from "./TabPane";
@@ -172,6 +173,21 @@ export function TabView({ tab }: TabViewProps) {
 						isActive={isActive}
 						tabId={tab.id}
 						workspaceId={tab.workspaceId}
+						splitPaneAuto={splitPaneAuto}
+						removePane={removePane}
+						setFocusedPane={setFocusedPane}
+					/>
+				);
+			}
+
+			// Route browser panes to BrowserPane component
+			if (paneInfo.type === "webview") {
+				return (
+					<BrowserPane
+						paneId={paneId}
+						path={path}
+						isActive={isActive}
+						tabId={tab.id}
 						splitPaneAuto={splitPaneAuto}
 						removePane={removePane}
 						setFocusedPane={setFocusedPane}

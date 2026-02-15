@@ -133,6 +133,7 @@ export interface Pane {
 	cwdConfirmed?: boolean; // True if cwd confirmed via OSC-7, false if seeded
 	fileViewer?: FileViewerState; // For file-viewer panes
 	chat?: ChatPaneState; // For chat panes
+	browser?: BrowserPaneState; // For browser (webview) panes
 }
 
 /**
@@ -141,6 +142,35 @@ export interface Pane {
 export interface ChatPaneState {
 	/** Session ID for the chat session */
 	sessionId: string;
+}
+
+/**
+ * Single entry in the browser pane's navigation history
+ */
+export interface BrowserHistoryEntry {
+	url: string;
+	title: string;
+	timestamp: number;
+}
+
+/**
+ * Named viewport size preset for responsive testing
+ */
+export interface ViewportPreset {
+	name: string;
+	width: number;
+	height: number;
+}
+
+/**
+ * Browser pane-specific properties
+ */
+export interface BrowserPaneState {
+	currentUrl: string;
+	history: BrowserHistoryEntry[];
+	historyIndex: number;
+	isLoading: boolean;
+	viewport?: ViewportPreset | null;
 }
 
 /**

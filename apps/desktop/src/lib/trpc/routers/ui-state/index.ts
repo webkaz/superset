@@ -44,6 +44,28 @@ const paneSchema = z.object({
 	cwdConfirmed: z.boolean().optional(),
 	fileViewer: fileViewerStateSchema.optional(),
 	chat: z.object({ sessionId: z.string() }).optional(),
+	browser: z
+		.object({
+			currentUrl: z.string(),
+			history: z.array(
+				z.object({
+					url: z.string(),
+					title: z.string(),
+					timestamp: z.number(),
+				}),
+			),
+			historyIndex: z.number(),
+			isLoading: z.boolean(),
+			viewport: z
+				.object({
+					name: z.string(),
+					width: z.number(),
+					height: z.number(),
+				})
+				.nullable()
+				.optional(),
+		})
+		.optional(),
 });
 
 /**

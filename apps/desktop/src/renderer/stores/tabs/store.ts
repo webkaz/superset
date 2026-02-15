@@ -14,6 +14,7 @@ import type {
 import {
 	buildMultiPaneLayout,
 	type CreatePaneOptions,
+	createBrowserTabWithPane,
 	createChatTabWithPane,
 	createFileViewerPane,
 	createPane,
@@ -1111,6 +1112,111 @@ export const useTabsStore = create<TabsStore>()(
 					return moveResult.newTabId;
 				},
 
+				// Browser operations
+				addBrowserTab: (workspaceId: string, url?: string) => {
+					const state = get();
+
+					const { tab, pane } = createBrowserTabWithPane(
+						workspaceId,
+						state.tabs,
+						url,
+					);
+
+					const currentActiveId = state.activeTabIds[workspaceId];
+					const historyStack = state.tabHistoryStacks[workspaceId] || [];
+					const newHistoryStack = currentActiveId
+						? [
+								currentActiveId,
+								...historyStack.filter((id) => id !== currentActiveId),
+							]
+						: historyStack;
+
+					set({
+						tabs: [...state.tabs, tab],
+						panes: { ...state.panes, [pane.id]: pane },
+						activeTabIds: {
+							...state.activeTabIds,
+							[workspaceId]: tab.id,
+						},
+						focusedPaneIds: {
+							...state.focusedPaneIds,
+							[tab.id]: pane.id,
+						},
+						tabHistoryStacks: {
+							...state.tabHistoryStacks,
+							[workspaceId]: newHistoryStack,
+						},
+					});
+
+					return { tabId: tab.id, paneId: pane.id };
+				},
+
+				updateBrowserUrl: (paneId: string, url: string, title: string) => {
+					const state = get();
+					const pane = state.panes[paneId];
+					if (!pane?.browser) return;
+
+					const history = [...pane.browser.history];
+					history.push({ url, title, timestamp: Date.now() });
+					if (history.length > 100) {
+						history.splice(0, history.length - 100);
+					}
+
+					set({
+						panes: {
+							...state.panes,
+							[paneId]: {
+								...pane,
+								name: title || "Browser",
+								browser: {
+									...pane.browser,
+									currentUrl: url,
+									history,
+									historyIndex: history.length - 1,
+								},
+							},
+						},
+					});
+				},
+
+				updateBrowserLoading: (paneId: string, isLoading: boolean) => {
+					const state = get();
+					const pane = state.panes[paneId];
+					if (!pane?.browser || pane.browser.isLoading === isLoading) return;
+
+					set({
+						panes: {
+							...state.panes,
+							[paneId]: {
+								...pane,
+								browser: {
+									...pane.browser,
+									isLoading,
+								},
+							},
+						},
+					});
+				},
+
+				setBrowserViewport: (paneId, viewport) => {
+					const state = get();
+					const pane = state.panes[paneId];
+					if (!pane?.browser) return;
+
+					set({
+						panes: {
+							...state.panes,
+							[paneId]: {
+								...pane,
+								browser: {
+									...pane.browser,
+									viewport,
+								},
+							},
+						},
+					});
+				},
+
 				// Chat operations
 				switchChatSession: (paneId, sessionId) => {
 					const state = get();
@@ -1159,7 +1265,7 @@ export const useTabsStore = create<TabsStore>()(
 			}),
 			{
 				name: "tabs-storage",
-				version: 3,
+				version: 4,
 				storage: trpcTabsStorage,
 				migrate: (persistedState, version) => {
 					const state = persistedState as TabsState;
@@ -1186,6 +1292,7 @@ export const useTabsStore = create<TabsStore>()(
 							}
 						}
 					}
+					// v4: browser field is optional, no migration needed
 					return state;
 				},
 				merge: (persistedState, currentState) => {

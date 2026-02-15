@@ -7,6 +7,7 @@ import type {
 	Pane,
 	PaneStatus,
 	PaneType,
+	ViewportPreset,
 } from "shared/tabs-types";
 
 // Re-export shared types
@@ -136,6 +137,15 @@ export interface TabsStore extends TabsState {
 	// Move operations
 	movePaneToTab: (paneId: string, targetTabId: string) => void;
 	movePaneToNewTab: (paneId: string) => string;
+
+	// Browser operations
+	addBrowserTab: (
+		workspaceId: string,
+		url?: string,
+	) => { tabId: string; paneId: string };
+	updateBrowserUrl: (paneId: string, url: string, title: string) => void;
+	updateBrowserLoading: (paneId: string, isLoading: boolean) => void;
+	setBrowserViewport: (paneId: string, viewport: ViewportPreset | null) => void;
 
 	// Chat operations
 	/** Switch a chat pane to a different session */
