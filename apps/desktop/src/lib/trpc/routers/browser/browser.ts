@@ -110,26 +110,11 @@ export const createBrowserRouter = () => {
 				return { success: true };
 			}),
 
-		attachDevTools: publicProcedure
-			.input(
-				z.object({
-					browserPaneId: z.string(),
-					devtoolsWebContentsId: z.number(),
-				}),
-			)
-			.mutation(({ input }) => {
-				browserManager.attachDevTools(
-					input.browserPaneId,
-					input.devtoolsWebContentsId,
-				);
-				return { success: true };
-			}),
-
-		detachDevTools: publicProcedure
+		getDevToolsUrl: publicProcedure
 			.input(z.object({ browserPaneId: z.string() }))
-			.mutation(({ input }) => {
-				browserManager.detachDevTools(input.browserPaneId);
-				return { success: true };
+			.query(async ({ input }) => {
+				const url = await browserManager.getDevToolsUrl(input.browserPaneId);
+				return { url };
 			}),
 
 		getPageInfo: publicProcedure

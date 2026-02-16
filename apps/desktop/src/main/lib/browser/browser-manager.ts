@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { type WebContents, webContents } from "electron";
+import { type WebContents, app, webContents } from "electron";
 
 interface ConsoleEntry {
 	level: "log" | "warn" | "error" | "info" | "debug";
@@ -62,22 +62,42 @@ class BrowserManager extends EventEmitter {
 		wc.openDevTools({ mode: "detach" });
 	}
 
-	attachDevTools(browserPaneId: string, devtoolsWebContentsId: number): void {
-		const browserWC = this.getWebContents(browserPaneId);
-		if (!browserWC) return;
+	/**
+	 * Get the DevTools frontend URL for a browser pane by querying the CDP
+	 * remote debugging server. This avoids the broken setDevToolsWebContents
+	 * API (Electron issue #15874).
+	 */
+	async getDevToolsUrl(browserPaneId: string): Promise<string | null> {
+		const wc = this.getWebContents(browserPaneId);
+		if (!wc) return null;
 
-		const devtoolsWC = webContents.fromId(devtoolsWebContentsId);
-		if (!devtoolsWC) return;
+		// Discover the CDP port from Chromium's command line switch
+		const cdpPort = app.commandLine.getSwitchValue("remote-debugging-port");
+		if (!cdpPort) return null;
 
-		browserWC.setDevToolsWebContents(devtoolsWC);
-		browserWC.openDevTools();
-	}
+		const targetUrl = wc.getURL();
 
-	detachDevTools(browserPaneId: string): void {
-		const browserWC = this.getWebContents(browserPaneId);
-		if (!browserWC) return;
+		try {
+			const res = await fetch(`http://127.0.0.1:${cdpPort}/json`);
+			const targets = (await res.json()) as Array<{
+				id: string;
+				url: string;
+				type: string;
+				webSocketDebuggerUrl?: string;
+			}>;
 
-		browserWC.closeDevTools();
+			// Webview guests have type "webview", not "page"
+			const target = targets.find(
+				(t) =>
+					(t.type === "webview" || t.type === "page") &&
+					t.url === targetUrl,
+			);
+			if (!target) return null;
+
+			return `http://127.0.0.1:${cdpPort}/devtools/inspector.html?ws=127.0.0.1:${cdpPort}/devtools/page/${target.id}`;
+		} catch {
+			return null;
+		}
 	}
 
 	private setupConsoleCapture(paneId: string, webContentsId: number): void {

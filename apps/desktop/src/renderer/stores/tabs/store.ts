@@ -757,8 +757,23 @@ export const useTabsStore = create<TabsStore>()(
 					const tab = state.tabs.find((t) => t.id === pane.tabId);
 					if (!tab) return;
 
-					// If this is the last pane, remove the entire tab
-					if (isLastPaneInTab(state.panes, tab.id)) {
+					// Collect this pane + any devtools panes targeting it
+					const paneIdsToRemove = [paneId];
+					for (const [id, p] of Object.entries(state.panes)) {
+						if (
+							p.type === "devtools" &&
+							p.devtools?.targetPaneId === paneId
+						) {
+							paneIdsToRemove.push(id);
+						}
+					}
+
+					// If removing all these panes leaves the tab empty, remove the tab
+					const remainingPanes = Object.entries(state.panes).filter(
+						([id, p]) =>
+							p.tabId === tab.id && !paneIdsToRemove.includes(id),
+					);
+					if (remainingPanes.length === 0) {
 						get().removeTab(tab.id);
 						return;
 					}
@@ -766,23 +781,34 @@ export const useTabsStore = create<TabsStore>()(
 					// Must get adjacent pane BEFORE removing from layout
 					const adjacentPaneId = getAdjacentPaneId(tab.layout, paneId);
 
-					// Only kill terminal sessions for terminal panes (avoids unnecessary IPC for file-viewers)
-					if (pane.type === "terminal") {
-						killTerminalForPane(paneId);
+					// Kill terminal sessions for terminal panes
+					for (const id of paneIdsToRemove) {
+						if (state.panes[id]?.type === "terminal") {
+							killTerminalForPane(id);
+						}
 					}
 
-					const newLayout = removePaneFromLayout(tab.layout, paneId);
-					if (!newLayout) {
-						// This shouldn't happen since we checked isLastPaneInTab
-						get().removeTab(tab.id);
-						return;
+					// Remove all panes from layout
+					let newLayout = tab.layout;
+					for (const id of paneIdsToRemove) {
+						const result = removePaneFromLayout(
+							newLayout,
+							id,
+						);
+						if (!result) {
+							get().removeTab(tab.id);
+							return;
+						}
+						newLayout = result;
 					}
 
 					const newPanes = { ...state.panes };
-					delete newPanes[paneId];
+					for (const id of paneIdsToRemove) {
+						delete newPanes[id];
+					}
 
 					let newFocusedPaneIds = state.focusedPaneIds;
-					if (state.focusedPaneIds[tab.id] === paneId) {
+					if (paneIdsToRemove.includes(state.focusedPaneIds[tab.id])) {
 						newFocusedPaneIds = {
 							...state.focusedPaneIds,
 							[tab.id]: adjacentPaneId ?? getFirstPaneId(newLayout),

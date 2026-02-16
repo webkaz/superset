@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef } from "react";
 import type { MosaicBranch } from "react-mosaic-component";
 import { electronTrpc } from "renderer/lib/electron-trpc";
-import { BasePaneWindow } from "../../../components";
+import { BasePaneWindow, PaneToolbarActions } from "../../../components";
 
 interface DevToolsPaneProps {
 	paneId: string;
@@ -29,50 +28,12 @@ export function DevToolsPane({
 	removePane,
 	setFocusedPane,
 }: DevToolsPaneProps) {
-	const webviewRef = useRef<Electron.WebviewTag | null>(null);
-	const attachedRef = useRef(false);
-	const attachMutation = electronTrpc.browser.attachDevTools.useMutation();
-	const detachMutation = electronTrpc.browser.detachDevTools.useMutation();
-
-	const handleDomReady = useCallback(() => {
-		const webview = webviewRef.current;
-		if (!webview || attachedRef.current) return;
-
-		attachedRef.current = true;
-		const webContentsId = webview.getWebContentsId();
-		attachMutation.mutate({
-			browserPaneId: targetPaneId,
-			devtoolsWebContentsId: webContentsId,
-		});
-	}, [targetPaneId, attachMutation]);
-
-	const webviewRefCallback = useCallback(
-		(node: HTMLElement | null) => {
-			const prev = webviewRef.current;
-			if (prev) {
-				prev.removeEventListener("dom-ready", handleDomReady);
-			}
-
-			webviewRef.current = node as Electron.WebviewTag | null;
-
-			if (node) {
-				(node as Electron.WebviewTag).addEventListener(
-					"dom-ready",
-					handleDomReady,
-				);
-			}
-		},
-		[handleDomReady],
+	// Query the CDP debug server for the DevTools frontend URL
+	const { data } = electronTrpc.browser.getDevToolsUrl.useQuery(
+		{ browserPaneId: targetPaneId },
+		{ refetchOnWindowFocus: false },
 	);
-
-	useEffect(() => {
-		return () => {
-			if (attachedRef.current) {
-				detachMutation.mutate({ browserPaneId: targetPaneId });
-			}
-		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [targetPaneId, detachMutation.mutate]);
+	const devToolsUrl = data?.url;
 
 	return (
 		<BasePaneWindow
@@ -83,19 +44,31 @@ export function DevToolsPane({
 			splitPaneAuto={splitPaneAuto}
 			removePane={removePane}
 			setFocusedPane={setFocusedPane}
-			renderToolbar={() => (
-				<div className="flex h-full w-full items-center px-2">
-					<span className="text-xs text-muted-foreground">DevTools</span>
+			renderToolbar={(handlers) => (
+				<div className="flex h-full w-full items-center justify-between">
+					<div className="flex h-full items-center px-2">
+						<span className="text-xs text-muted-foreground">DevTools</span>
+					</div>
+					<PaneToolbarActions
+						splitOrientation={handlers.splitOrientation}
+						onSplitPane={handlers.onSplitPane}
+						onClosePane={handlers.onClosePane}
+						closeHotkeyId="CLOSE_TERMINAL"
+					/>
 				</div>
 			)}
 		>
-			<webview
-				ref={webviewRefCallback}
-				src="about:blank"
-				partition="persist:superset"
-				className="w-full h-full"
-				style={{ display: "flex", flex: 1 }}
-			/>
+			{devToolsUrl ? (
+				<webview
+					src={devToolsUrl}
+					className="w-full h-full"
+					style={{ display: "flex", flex: 1 }}
+				/>
+			) : (
+				<div className="flex h-full w-full items-center justify-center text-muted-foreground text-xs">
+					Connecting to DevTools...
+				</div>
+			)}
 		</BasePaneWindow>
 	);
 }
