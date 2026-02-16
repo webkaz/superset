@@ -16,6 +16,7 @@ export function useBrowserNavigation({
 	const faviconUrlRef = useRef<string | undefined>(undefined);
 	const updateBrowserUrl = useTabsStore((s) => s.updateBrowserUrl);
 	const updateBrowserLoading = useTabsStore((s) => s.updateBrowserLoading);
+	const setBrowserError = useTabsStore((s) => s.setBrowserError);
 	const navigateBrowserHistory = useTabsStore((s) => s.navigateBrowserHistory);
 	const { mutate: registerBrowser } =
 		electronTrpc.browser.register.useMutation();
@@ -96,9 +97,9 @@ export function useBrowserNavigation({
 
 	const handleDidStartLoading = useCallback(() => {
 		updateBrowserLoading(paneId, true);
-		// Reset favicon for new navigation
+		setBrowserError(paneId, null);
 		faviconUrlRef.current = undefined;
-	}, [paneId, updateBrowserLoading]);
+	}, [paneId, updateBrowserLoading, setBrowserError]);
 
 	const handleDidStopLoading = useCallback(() => {
 		updateBrowserLoading(paneId, false);
@@ -163,6 +164,20 @@ export function useBrowserNavigation({
 		[paneId, updateBrowserUrl, upsertHistory],
 	);
 
+	const handleDidFailLoad = useCallback(
+		(event: Electron.DidFailLoadEvent) => {
+			// errorCode -3 is ERR_ABORTED (e.g. user navigated away before load finished)
+			if (event.errorCode === -3) return;
+			updateBrowserLoading(paneId, false);
+			setBrowserError(paneId, {
+				code: event.errorCode,
+				description: event.errorDescription,
+				url: event.validatedURL,
+			});
+		},
+		[paneId, updateBrowserLoading, setBrowserError],
+	);
+
 	const setupListeners = useCallback(
 		(webview: Electron.WebviewTag) => {
 			webview.addEventListener("dom-ready", handleDomReady);
@@ -184,6 +199,10 @@ export function useBrowserNavigation({
 				"page-favicon-updated",
 				handlePageFaviconUpdated as EventListener,
 			);
+			webview.addEventListener(
+				"did-fail-load",
+				handleDidFailLoad as EventListener,
+			);
 		},
 		[
 			handleDomReady,
@@ -193,6 +212,7 @@ export function useBrowserNavigation({
 			handleDidStopLoading,
 			handlePageTitleUpdated,
 			handlePageFaviconUpdated,
+			handleDidFailLoad,
 		],
 	);
 
@@ -217,6 +237,10 @@ export function useBrowserNavigation({
 				"page-favicon-updated",
 				handlePageFaviconUpdated as EventListener,
 			);
+			webview.removeEventListener(
+				"did-fail-load",
+				handleDidFailLoad as EventListener,
+			);
 		},
 		[
 			handleDomReady,
@@ -226,6 +250,7 @@ export function useBrowserNavigation({
 			handleDidStopLoading,
 			handlePageTitleUpdated,
 			handlePageFaviconUpdated,
+			handleDidFailLoad,
 		],
 	);
 

@@ -172,11 +172,18 @@ export interface ViewportPreset {
 /**
  * Browser pane-specific properties
  */
+export interface BrowserLoadError {
+	code: number;
+	description: string;
+	url: string;
+}
+
 export interface BrowserPaneState {
 	currentUrl: string;
 	history: BrowserHistoryEntry[];
 	historyIndex: number;
 	isLoading: boolean;
+	error?: BrowserLoadError | null;
 	viewport?: ViewportPreset | null;
 }
 

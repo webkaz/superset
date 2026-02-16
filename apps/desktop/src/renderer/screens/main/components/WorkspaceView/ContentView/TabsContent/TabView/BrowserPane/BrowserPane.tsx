@@ -5,6 +5,7 @@ import { TbDeviceDesktop } from "react-icons/tb";
 import type { MosaicBranch } from "react-mosaic-component";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import { BasePaneWindow, PaneToolbarActions } from "../components";
+import { BrowserErrorOverlay } from "./components/BrowserErrorOverlay";
 import { BrowserToolbar } from "./components/BrowserToolbar";
 import { BrowserOverflowMenu } from "./components/BrowserToolbar/components/BrowserOverflowMenu";
 import { DEFAULT_BROWSER_URL } from "./constants";
@@ -41,6 +42,7 @@ export function BrowserPane({
 	const pageTitle =
 		browserState?.history[browserState.historyIndex]?.title ?? "";
 	const isLoading = browserState?.isLoading ?? false;
+	const loadError = browserState?.error ?? null;
 	const isBlankPage = currentUrl === "about:blank";
 
 	// Capture the initial URL on first render only — subsequent navigations
@@ -135,7 +137,10 @@ export function BrowserPane({
 					className="w-full h-full"
 					style={{ display: "flex", flex: 1 }}
 				/>
-				{isBlankPage && !isLoading && (
+				{loadError && !isLoading && (
+					<BrowserErrorOverlay error={loadError} onRetry={reload} />
+				)}
+				{isBlankPage && !isLoading && !loadError && (
 					<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background pointer-events-none">
 						<GlobeIcon className="size-10 text-muted-foreground/30" />
 						<div className="text-center">

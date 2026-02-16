@@ -1291,6 +1291,25 @@ export const useTabsStore = create<TabsStore>()(
 					});
 				},
 
+				setBrowserError: (paneId, error) => {
+					const state = get();
+					const pane = state.panes[paneId];
+					if (!pane?.browser) return;
+
+					set({
+						panes: {
+							...state.panes,
+							[paneId]: {
+								...pane,
+								browser: {
+									...pane.browser,
+									error,
+								},
+							},
+						},
+					});
+				},
+
 				setBrowserViewport: (paneId, viewport) => {
 					const state = get();
 					const pane = state.panes[paneId];
