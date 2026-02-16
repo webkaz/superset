@@ -13,6 +13,7 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@superset/ui/dropdown-menu";
+import { ScrollArea } from "@superset/ui/scroll-area";
 import { toast } from "@superset/ui/sonner";
 import { Textarea } from "@superset/ui/textarea";
 import { useEffect, useRef, useState } from "react";
@@ -24,29 +25,57 @@ import { useCreateWorkspace } from "renderer/react-query/workspaces";
 import {
 	useCloseStartWorkingModal,
 	useStartWorkingModalOpen,
-	useStartWorkingModalTask,
+	useStartWorkingModalTasks,
 } from "renderer/stores/start-working-modal";
 import { sanitizeSegment } from "shared/utils/branch";
 import { formatTaskContext } from "../../utils/formatTaskContext";
+import type { TaskWithStatus } from "../TasksView/hooks/useTasksTable";
 
 export function StartWorkingDialog() {
 	const isOpen = useStartWorkingModalOpen();
-	const task = useStartWorkingModalTask();
+	const tasks = useStartWorkingModalTasks();
 	const closeModal = useCloseStartWorkingModal();
+
+	const isBatch = tasks.length > 1;
+	const singleTask = tasks.length === 1 ? tasks[0] : null;
 
 	const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
 		null,
 	);
 	const [additionalContext, setAdditionalContext] = useState("");
+	const [batchProgress, setBatchProgress] = useState<{
+		current: number;
+		total: number;
+	} | null>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
-	const pendingCommandRef = useRef<string | null>(null);
+	const currentBatchTaskRef = useRef<TaskWithStatus | null>(null);
 
 	const { data: recentProjects = [] } =
 		electronTrpc.projects.getRecents.useQuery();
+
+	// Single-task workspace creation (navigates after)
 	const createWorkspace = useCreateWorkspace({
-		resolveInitialCommands: () =>
-			pendingCommandRef.current ? [pendingCommandRef.current] : null,
+		resolveInitialCommands: () => {
+			if (!singleTask) return null;
+			const command = formatTaskContext({
+				task: singleTask,
+				additionalContext: additionalContext.trim() || undefined,
+			});
+			return [command];
+		},
 	});
+
+	// Batch workspace creation (skips navigation)
+	const createBatchWorkspace = useCreateWorkspace({
+		skipNavigation: true,
+		resolveInitialCommands: () => {
+			const task = currentBatchTaskRef.current;
+			if (!task) return null;
+			const command = formatTaskContext({ task });
+			return [command];
+		},
+	});
+
 	const openNew = useOpenNew();
 
 	const selectedProject = recentProjects.find(
@@ -60,17 +89,19 @@ export function StartWorkingDialog() {
 		}
 	}, [isOpen, selectedProjectId, recentProjects]);
 
-	// Focus textarea when project is selected
+	// Focus textarea when project is selected (single mode only)
 	useEffect(() => {
-		if (isOpen && selectedProjectId) {
+		if (isOpen && selectedProjectId && !isBatch) {
 			const timer = setTimeout(() => textareaRef.current?.focus(), 50);
 			return () => clearTimeout(timer);
 		}
-	}, [isOpen, selectedProjectId]);
+	}, [isOpen, selectedProjectId, isBatch]);
 
 	const resetForm = () => {
 		setSelectedProjectId(null);
 		setAdditionalContext("");
+		setBatchProgress(null);
+		currentBatchTaskRef.current = null;
 	};
 
 	const handleClose = () => {
@@ -100,15 +131,20 @@ export function StartWorkingDialog() {
 	};
 
 	const handleCreateWorkspace = async () => {
-		if (!selectedProjectId || !task) return;
+		if (!selectedProjectId) return;
 
-		const workspaceName = task.slug;
-		const branchSlug = sanitizeSegment(task.slug);
+		if (isBatch) {
+			await handleBatchCreate();
+		} else {
+			await handleSingleCreate();
+		}
+	};
 
-		pendingCommandRef.current = formatTaskContext({
-			task,
-			additionalContext: additionalContext.trim() || undefined,
-		});
+	const handleSingleCreate = async () => {
+		if (!selectedProjectId || !singleTask) return;
+
+		const workspaceName = singleTask.slug;
+		const branchSlug = sanitizeSegment(singleTask.slug);
 
 		try {
 			const result = await createWorkspace.mutateAsync({
@@ -133,73 +169,147 @@ export function StartWorkingDialog() {
 			toast.error(
 				err instanceof Error ? err.message : "Failed to create workspace",
 			);
-		} finally {
-			pendingCommandRef.current = null;
 		}
 	};
+
+	const handleBatchCreate = async () => {
+		if (!selectedProjectId) return;
+
+		setBatchProgress({ current: 0, total: tasks.length });
+
+		let successCount = 0;
+		for (let i = 0; i < tasks.length; i++) {
+			const task = tasks[i];
+			currentBatchTaskRef.current = task;
+			setBatchProgress({ current: i + 1, total: tasks.length });
+
+			const workspaceName = task.slug;
+			const branchSlug = sanitizeSegment(task.slug);
+
+			try {
+				await createBatchWorkspace.mutateAsync({
+					projectId: selectedProjectId,
+					name: workspaceName,
+					branchName: branchSlug || undefined,
+					applyPrefix: true,
+				});
+				successCount++;
+			} catch (err) {
+				console.error(
+					`[StartWorkingDialog] Failed to create workspace for ${task.slug}:`,
+					err,
+				);
+				toast.error(`Failed to create workspace for ${task.slug}`, {
+					description: err instanceof Error ? err.message : "Unknown error",
+				});
+			}
+		}
+
+		handleClose();
+
+		if (successCount > 0) {
+			toast.success(
+				`Created ${successCount} workspace${successCount > 1 ? "s" : ""}`,
+				{
+					description: "Launching Claude for each task...",
+				},
+			);
+		}
+	};
+
+	const isPending =
+		createWorkspace.isPending ||
+		createBatchWorkspace.isPending ||
+		batchProgress !== null;
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
 		if (
 			e.key === "Enter" &&
 			(e.metaKey || e.ctrlKey) &&
 			selectedProjectId &&
-			!createWorkspace.isPending
+			!isPending
 		) {
 			e.preventDefault();
 			handleCreateWorkspace();
 		}
 	};
 
-	if (!task) return null;
+	if (tasks.length === 0) return null;
 
 	return (
 		<Dialog modal open={isOpen} onOpenChange={(open) => !open && handleClose()}>
 			<DialogContent
-				className="sm:max-w-[480px] gap-0 p-0 overflow-hidden"
+				className="sm:max-w-[480px] max-h-[85vh] gap-0 p-0 flex flex-col overflow-hidden"
 				onKeyDown={handleKeyDown}
 			>
-				<DialogHeader className="px-4 pt-4 pb-3">
+				<DialogHeader className="px-4 pt-4 pb-3 shrink-0">
 					<DialogTitle className="text-base">Start Working</DialogTitle>
 				</DialogHeader>
 
+				<div className="overflow-y-auto min-h-0">
 				{/* Task context preview */}
 				<div className="px-4 pb-3">
-					<div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
-						<div className="flex items-center gap-2">
-							<span className="text-xs text-muted-foreground font-mono">
-								{task.slug}
-							</span>
-							{task.status && (
-								<Badge variant="outline" className="text-[10px] px-1.5 py-0">
-									{task.status.name}
-								</Badge>
+					{isBatch ? (
+						<div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+							<p className="text-sm font-medium">
+								{tasks.length} tasks selected
+							</p>
+							<ScrollArea className="max-h-[160px]">
+								<div className="space-y-1.5">
+									{tasks.map((task) => (
+										<div
+											key={task.id}
+											className="flex items-center gap-2 text-xs"
+										>
+											<span className="text-muted-foreground font-mono shrink-0">
+												{task.slug}
+											</span>
+											<span className="truncate">{task.title}</span>
+										</div>
+									))}
+								</div>
+							</ScrollArea>
+						</div>
+					) : singleTask ? (
+						<div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+							<div className="flex items-center gap-2">
+								<span className="text-xs text-muted-foreground font-mono">
+									{singleTask.slug}
+								</span>
+								{singleTask.status && (
+									<Badge variant="outline" className="text-[10px] px-1.5 py-0">
+										{singleTask.status.name}
+									</Badge>
+								)}
+								{singleTask.priority && singleTask.priority !== "none" && (
+									<Badge variant="outline" className="text-[10px] px-1.5 py-0">
+										{singleTask.priority}
+									</Badge>
+								)}
+							</div>
+							<p className="text-sm font-medium leading-snug">
+								{singleTask.title}
+							</p>
+							{singleTask.description && (
+								<p className="text-xs text-muted-foreground line-clamp-2">
+									{singleTask.description}
+								</p>
 							)}
-							{task.priority && task.priority !== "none" && (
-								<Badge variant="outline" className="text-[10px] px-1.5 py-0">
-									{task.priority}
-								</Badge>
+							{singleTask.labels && singleTask.labels.length > 0 && (
+								<div className="flex gap-1 flex-wrap">
+									{singleTask.labels.map((label) => (
+										<Badge
+											key={label}
+											variant="secondary"
+											className="text-[10px] px-1.5 py-0"
+										>
+											{label}
+										</Badge>
+									))}
+								</div>
 							)}
 						</div>
-						<p className="text-sm font-medium leading-snug">{task.title}</p>
-						{task.description && (
-							<p className="text-xs text-muted-foreground line-clamp-2">
-								{task.description}
-							</p>
-						)}
-						{task.labels && task.labels.length > 0 && (
-							<div className="flex gap-1 flex-wrap">
-								{task.labels.map((label) => (
-									<Badge
-										key={label}
-										variant="secondary"
-										className="text-[10px] px-1.5 py-0"
-									>
-										{label}
-									</Badge>
-								))}
-							</div>
-						)}
-					</div>
+					) : null}
 				</div>
 
 				{/* Project selector */}
@@ -244,8 +354,8 @@ export function StartWorkingDialog() {
 					</DropdownMenu>
 				</div>
 
-				{/* Additional context */}
-				{selectedProjectId && (
+				{/* Additional context (single mode only) */}
+				{selectedProjectId && !isBatch && (
 					<div className="px-4 pb-3">
 						<Textarea
 							ref={textareaRef}
@@ -257,16 +367,22 @@ export function StartWorkingDialog() {
 					</div>
 				)}
 
+				</div>
+
 				{/* Create button */}
-				<div className="px-4 pb-4">
+				<div className="px-4 pb-4 shrink-0">
 					<Button
 						className="w-full h-8 text-sm"
 						onClick={handleCreateWorkspace}
-						disabled={!selectedProjectId || createWorkspace.isPending}
+						disabled={!selectedProjectId || isPending}
 					>
-						{createWorkspace.isPending
-							? "Creating..."
-							: "Create Workspace & Start Claude"}
+						{batchProgress
+							? `Creating... (${batchProgress.current}/${batchProgress.total})`
+							: createWorkspace.isPending
+								? "Creating..."
+								: isBatch
+									? `Create ${tasks.length} Workspaces & Start Claude`
+									: "Create Workspace & Start Claude"}
 					</Button>
 				</div>
 			</DialogContent>

@@ -3,9 +3,10 @@ import { Spinner } from "@superset/ui/spinner";
 import { eq } from "@tanstack/db";
 import { useLiveQuery } from "@tanstack/react-db";
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { HiCheckCircle } from "react-icons/hi2";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider";
+import { useOpenStartWorkingModal } from "renderer/stores/start-working-modal";
 import { LinearCTA } from "./components/LinearCTA";
 import { TasksTableView } from "./components/TasksTableView";
 import { type TabValue, TasksTopBar } from "./components/TasksTopBar";
@@ -14,6 +15,7 @@ import { type TaskWithStatus, useTasksTable } from "./hooks/useTasksTable";
 export function TasksView() {
 	const navigate = useNavigate();
 	const collections = useCollections();
+	const openStartWorkingModal = useOpenStartWorkingModal();
 	const [currentTab, setCurrentTab] = useState<TabValue>("all");
 	const [searchQuery, setSearchQuery] = useState("");
 	const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
@@ -31,17 +33,39 @@ export function TasksView() {
 
 	const isLinearConnected = integrations && integrations.length > 0;
 
-	const { table, isLoading, slugColumnWidth } = useTasksTable({
-		filterTab: currentTab,
-		searchQuery,
-		assigneeFilter,
-	});
+	const { table, isLoading, slugColumnWidth, rowSelection, setRowSelection } =
+		useTasksTable({
+			filterTab: currentTab,
+			searchQuery,
+			assigneeFilter,
+		});
+
+	const selectedTasks = useMemo(() => {
+		const selectedIds = Object.keys(rowSelection).filter(
+			(id) => rowSelection[id],
+		);
+		if (selectedIds.length === 0) return [];
+
+		return table
+			.getRowModel()
+			.rows.filter((row) => row.getIsSelected() && !row.getIsGrouped())
+			.map((row) => row.original);
+	}, [rowSelection, table]);
 
 	const handleTaskClick = (task: TaskWithStatus) => {
 		navigate({
 			to: "/tasks/$taskId",
 			params: { taskId: task.id },
 		});
+	};
+
+	const handleStartWorking = () => {
+		if (selectedTasks.length === 0) return;
+		openStartWorkingModal(selectedTasks);
+	};
+
+	const handleClearSelection = () => {
+		setRowSelection({});
 	};
 
 	const showLoading = isLoading || isCheckingLinear;
@@ -61,6 +85,9 @@ export function TasksView() {
 					onSearchChange={setSearchQuery}
 					assigneeFilter={assigneeFilter}
 					onAssigneeFilterChange={setAssigneeFilter}
+					selectedCount={selectedTasks.length}
+					onStartWorking={handleStartWorking}
+					onClearSelection={handleClearSelection}
 				/>
 			)}
 

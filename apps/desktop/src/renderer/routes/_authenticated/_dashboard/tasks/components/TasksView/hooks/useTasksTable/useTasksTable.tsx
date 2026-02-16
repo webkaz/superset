@@ -4,6 +4,7 @@ import type {
 	SelectUser,
 } from "@superset/db/schema";
 import { Badge } from "@superset/ui/badge";
+import { Checkbox } from "@superset/ui/checkbox";
 import { eq, isNull } from "@tanstack/db";
 import { useLiveQuery } from "@tanstack/react-db";
 import {
@@ -14,11 +15,18 @@ import {
 	getExpandedRowModel,
 	getFilteredRowModel,
 	getGroupedRowModel,
+	type RowSelectionState,
 	type Table,
 	useReactTable,
 } from "@tanstack/react-table";
 import { format } from "date-fns";
-import { useEffect, useMemo, useState } from "react";
+import {
+	type Dispatch,
+	type SetStateAction,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { HiChevronRight } from "react-icons/hi2";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider";
 import {
@@ -53,11 +61,14 @@ export function useTasksTable({
 	table: Table<TaskWithStatus>;
 	isLoading: boolean;
 	slugColumnWidth: string;
+	rowSelection: RowSelectionState;
+	setRowSelection: Dispatch<SetStateAction<RowSelectionState>>;
 } {
 	const collections = useCollections();
 	const [grouping, setGrouping] = useState<string[]>(["status"]);
 	const [expanded, setExpanded] = useState<ExpandedState>(true);
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+	const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
 
 	const { data: allData, isLoading } = useLiveQuery(
 		(q) =>
@@ -108,6 +119,7 @@ export function useTasksTable({
 			});
 		}
 		setColumnFilters(newColumnFilters);
+		setRowSelection({});
 	}, [filterTab, assigneeFilter]);
 
 	const slugColumnWidth = useMemo(() => {
@@ -187,8 +199,17 @@ export function useTasksTable({
 			columnHelper.display({
 				id: "checkbox",
 				header: "",
-				cell: () => {
-					return <div className="w-4" />;
+				cell: ({ row }) => {
+					if (row.getIsGrouped()) return null;
+					return (
+						<Checkbox
+							checked={row.getIsSelected()}
+							onCheckedChange={row.getToggleSelectedHandler()}
+							onClick={(e) => e.stopPropagation()}
+							aria-label="Select task"
+							className="cursor-pointer"
+						/>
+					);
 				},
 			}),
 
@@ -283,7 +304,11 @@ export function useTasksTable({
 			grouping,
 			expanded,
 			columnFilters,
+			rowSelection,
 		},
+		getRowId: (row) => row.id,
+		enableRowSelection: true,
+		onRowSelectionChange: setRowSelection,
 		onGroupingChange: setGrouping,
 		onExpandedChange: setExpanded,
 		onColumnFiltersChange: setColumnFilters,
@@ -294,5 +319,5 @@ export function useTasksTable({
 		autoResetExpanded: false,
 	});
 
-	return { table, isLoading, slugColumnWidth };
+	return { table, isLoading, slugColumnWidth, rowSelection, setRowSelection };
 }
