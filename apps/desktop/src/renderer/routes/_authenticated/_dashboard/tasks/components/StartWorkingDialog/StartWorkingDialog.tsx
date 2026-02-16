@@ -217,9 +217,6 @@ export function StartWorkingDialog() {
 					err,
 				);
 				setTaskStatuses((prev) => ({ ...prev, [task.id]: "failed" }));
-				toast.error(`Failed to create workspace for ${task.slug}`, {
-					description: err instanceof Error ? err.message : "Unknown error",
-				});
 			}
 		}
 
