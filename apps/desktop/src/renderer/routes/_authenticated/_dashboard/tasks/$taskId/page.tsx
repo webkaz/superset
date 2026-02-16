@@ -10,6 +10,7 @@ import { LuExternalLink, LuPlay } from "react-icons/lu";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider";
 import { useOpenStartWorkingModal } from "renderer/stores/start-working-modal";
 import type { TaskWithStatus } from "../components/TasksView/hooks/useTasksTable";
+import { Route as TasksLayoutRoute } from "../layout";
 import { ActivitySection } from "./components/ActivitySection";
 import { CommentInput } from "./components/CommentInput";
 import { EditableTitle } from "./components/EditableTitle";
@@ -25,11 +26,13 @@ export const Route = createFileRoute(
 
 function TaskDetailPage() {
 	const { taskId } = Route.useParams();
+	const { tab } = TasksLayoutRoute.useSearch();
 	const navigate = useNavigate();
 	const collections = useCollections();
 	const openStartWorkingModal = useOpenStartWorkingModal();
 
-	useEscapeToNavigate("/tasks");
+	const backSearch = tab ? { tab } : {};
+	useEscapeToNavigate("/tasks", { search: backSearch });
 
 	// Support both UUID and slug lookups
 	const { data: taskData } = useLiveQuery(
@@ -57,7 +60,7 @@ function TaskDetailPage() {
 	}, [taskData]);
 
 	const handleBack = () => {
-		navigate({ to: "/tasks" });
+		navigate({ to: "/tasks", search: backSearch });
 	};
 
 	const handleSaveTitle = (title: string) => {

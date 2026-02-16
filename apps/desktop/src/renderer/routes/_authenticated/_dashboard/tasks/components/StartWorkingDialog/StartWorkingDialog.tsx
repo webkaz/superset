@@ -17,8 +17,8 @@ import { ScrollArea } from "@superset/ui/scroll-area";
 import { toast } from "@superset/ui/sonner";
 import { Textarea } from "@superset/ui/textarea";
 import { useEffect, useRef, useState } from "react";
-import { HiCheck, HiChevronDown } from "react-icons/hi2";
-import { LuFolderOpen } from "react-icons/lu";
+import { HiCheck, HiChevronDown, HiXMark } from "react-icons/hi2";
+import { LuFolderOpen, LuLoader } from "react-icons/lu";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 import { useOpenNew } from "renderer/react-query/projects";
 import { useCreateWorkspace } from "renderer/react-query/workspaces";
@@ -43,12 +43,13 @@ export function StartWorkingDialog() {
 		null,
 	);
 	const [additionalContext, setAdditionalContext] = useState("");
-	const [batchProgress, setBatchProgress] = useState<{
-		current: number;
-		total: number;
-	} | null>(null);
+	const [taskStatuses, setTaskStatuses] = useState<
+		Record<string, "pending" | "creating" | "done" | "failed">
+	>({});
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const currentBatchTaskRef = useRef<TaskWithStatus | null>(null);
+
+	const isBatchInProgress = Object.keys(taskStatuses).length > 0;
 
 	const { data: recentProjects = [] } =
 		electronTrpc.projects.getRecents.useQuery();
@@ -100,7 +101,7 @@ export function StartWorkingDialog() {
 	const resetForm = () => {
 		setSelectedProjectId(null);
 		setAdditionalContext("");
-		setBatchProgress(null);
+		setTaskStatuses({});
 		currentBatchTaskRef.current = null;
 	};
 
@@ -175,13 +176,16 @@ export function StartWorkingDialog() {
 	const handleBatchCreate = async () => {
 		if (!selectedProjectId) return;
 
-		setBatchProgress({ current: 0, total: tasks.length });
+		const initialStatuses: Record<string, "pending"> = {};
+		for (const task of tasks) {
+			initialStatuses[task.id] = "pending";
+		}
+		setTaskStatuses(initialStatuses);
 
 		let successCount = 0;
-		for (let i = 0; i < tasks.length; i++) {
-			const task = tasks[i];
+		for (const task of tasks) {
 			currentBatchTaskRef.current = task;
-			setBatchProgress({ current: i + 1, total: tasks.length });
+			setTaskStatuses((prev) => ({ ...prev, [task.id]: "creating" }));
 
 			const workspaceName = task.slug;
 			const branchSlug = sanitizeSegment(task.slug);
@@ -193,12 +197,14 @@ export function StartWorkingDialog() {
 					branchName: branchSlug || undefined,
 					applyPrefix: true,
 				});
+				setTaskStatuses((prev) => ({ ...prev, [task.id]: "done" }));
 				successCount++;
 			} catch (err) {
 				console.error(
 					`[StartWorkingDialog] Failed to create workspace for ${task.slug}:`,
 					err,
 				);
+				setTaskStatuses((prev) => ({ ...prev, [task.id]: "failed" }));
 				toast.error(`Failed to create workspace for ${task.slug}`, {
 					description: err instanceof Error ? err.message : "Unknown error",
 				});
@@ -220,7 +226,7 @@ export function StartWorkingDialog() {
 	const isPending =
 		createWorkspace.isPending ||
 		createBatchWorkspace.isPending ||
-		batchProgress !== null;
+		isBatchInProgress;
 
 	const handleKeyDown = (e: React.KeyboardEvent) => {
 		if (
@@ -268,17 +274,23 @@ export function StartWorkingDialog() {
 								</p>
 								<ScrollArea className="max-h-[160px]">
 									<div className="space-y-1.5">
-										{tasks.map((task) => (
-											<div
-												key={task.id}
-												className="flex items-center gap-2 text-xs"
-											>
-												<span className="text-muted-foreground font-mono shrink-0">
-													{task.slug}
-												</span>
-												<span className="truncate">{task.title}</span>
-											</div>
-										))}
+										{tasks.map((task) => {
+											const status = taskStatuses[task.id];
+											return (
+												<div
+													key={task.id}
+													className="flex items-center gap-2 text-xs"
+												>
+													{isBatchInProgress && (
+														<BatchTaskStatusIcon status={status} />
+													)}
+													<span className="text-muted-foreground font-mono shrink-0">
+														{task.slug}
+													</span>
+													<span className="truncate">{task.title}</span>
+												</div>
+											);
+										})}
 									</div>
 								</ScrollArea>
 							</div>
@@ -393,8 +405,8 @@ export function StartWorkingDialog() {
 						onClick={handleCreateWorkspace}
 						disabled={!selectedProjectId || isPending}
 					>
-						{batchProgress
-							? `Creating... (${batchProgress.current}/${batchProgress.total})`
+						{isBatchInProgress
+							? `Creating... (${Object.values(taskStatuses).filter((s) => s === "done" || s === "failed").length}/${tasks.length})`
 							: createWorkspace.isPending
 								? "Creating..."
 								: isBatch
@@ -405,4 +417,25 @@ export function StartWorkingDialog() {
 			</DialogContent>
 		</Dialog>
 	);
+}
+
+function BatchTaskStatusIcon({
+	status,
+}: {
+	status?: "pending" | "creating" | "done" | "failed";
+}) {
+	switch (status) {
+		case "creating":
+			return (
+				<LuLoader className="size-3 shrink-0 text-blue-500 animate-spin" />
+			);
+		case "done":
+			return <HiCheck className="size-3 shrink-0 text-green-500" />;
+		case "failed":
+			return <HiXMark className="size-3 shrink-0 text-red-500" />;
+		default:
+			return (
+				<div className="size-3 shrink-0 rounded-full border border-border" />
+			);
+	}
 }

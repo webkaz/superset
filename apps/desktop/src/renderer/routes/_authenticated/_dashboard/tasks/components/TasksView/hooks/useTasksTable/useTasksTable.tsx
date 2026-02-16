@@ -20,15 +20,10 @@ import {
 	useReactTable,
 } from "@tanstack/react-table";
 import { format } from "date-fns";
-import {
-	type Dispatch,
-	type SetStateAction,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { HiChevronRight } from "react-icons/hi2";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider";
+import { create } from "zustand";
 import {
 	StatusIcon,
 	type StatusType,
@@ -47,6 +42,22 @@ export type TaskWithStatus = SelectTask & {
 
 const columnHelper = createColumnHelper<TaskWithStatus>();
 
+const useRowSelectionStore = create<{
+	rowSelection: RowSelectionState;
+	setRowSelection: (
+		updater:
+			| RowSelectionState
+			| ((prev: RowSelectionState) => RowSelectionState),
+	) => void;
+}>((set) => ({
+	rowSelection: {},
+	setRowSelection: (updater) =>
+		set((state) => ({
+			rowSelection:
+				typeof updater === "function" ? updater(state.rowSelection) : updater,
+		})),
+}));
+
 interface UseTasksTableParams {
 	filterTab: TabValue;
 	searchQuery: string;
@@ -62,13 +73,18 @@ export function useTasksTable({
 	isLoading: boolean;
 	slugColumnWidth: string;
 	rowSelection: RowSelectionState;
-	setRowSelection: Dispatch<SetStateAction<RowSelectionState>>;
+	setRowSelection: (
+		updater:
+			| RowSelectionState
+			| ((prev: RowSelectionState) => RowSelectionState),
+	) => void;
 } {
 	const collections = useCollections();
 	const [grouping, setGrouping] = useState<string[]>(["status"]);
 	const [expanded, setExpanded] = useState<ExpandedState>(true);
 	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-	const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+	const rowSelection = useRowSelectionStore((s) => s.rowSelection);
+	const setRowSelection = useRowSelectionStore((s) => s.setRowSelection);
 
 	const { data: allData, isLoading } = useLiveQuery(
 		(q) =>
@@ -104,6 +120,7 @@ export function useTasksTable({
 		return results.map((r) => r.item);
 	}, [sortedData, searchQuery, search]);
 
+	const isFirstMount = useRef(true);
 	useEffect(() => {
 		const newColumnFilters: ColumnFiltersState = [];
 		if (filterTab !== "all") {
@@ -119,8 +136,12 @@ export function useTasksTable({
 			});
 		}
 		setColumnFilters(newColumnFilters);
-		setRowSelection({});
-	}, [filterTab, assigneeFilter]);
+		if (isFirstMount.current) {
+			isFirstMount.current = false;
+		} else {
+			setRowSelection({});
+		}
+	}, [filterTab, assigneeFilter, setRowSelection]);
 
 	const slugColumnWidth = useMemo(() => {
 		if (!data || data.length === 0) return "5rem";

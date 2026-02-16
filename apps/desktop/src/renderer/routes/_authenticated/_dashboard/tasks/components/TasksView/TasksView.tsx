@@ -3,7 +3,7 @@ import { Spinner } from "@superset/ui/spinner";
 import { eq } from "@tanstack/db";
 import { useLiveQuery } from "@tanstack/react-db";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { HiCheckCircle } from "react-icons/hi2";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider";
 import {
@@ -15,12 +15,16 @@ import { TasksTableView } from "./components/TasksTableView";
 import { type TabValue, TasksTopBar } from "./components/TasksTopBar";
 import { type TaskWithStatus, useTasksTable } from "./hooks/useTasksTable";
 
-export function TasksView() {
+interface TasksViewProps {
+	initialTab?: "all" | "active" | "backlog";
+}
+
+export function TasksView({ initialTab }: TasksViewProps) {
 	const navigate = useNavigate();
 	const collections = useCollections();
 	const openStartWorkingModal = useOpenStartWorkingModal();
 	const isModalOpen = useStartWorkingModalOpen();
-	const [currentTab, setCurrentTab] = useState<TabValue>("all");
+	const currentTab: TabValue = initialTab ?? "all";
 	const [searchQuery, setSearchQuery] = useState("");
 	const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
 
@@ -53,17 +57,28 @@ export function TasksView() {
 			.map((row) => row.original);
 	}, [rowSelection, table]);
 
-	// Clear row selection when modal closes
+	// Clear row selection when modal transitions from open → closed
+	const prevModalOpen = useRef(isModalOpen);
 	useEffect(() => {
-		if (!isModalOpen) {
+		if (prevModalOpen.current && !isModalOpen) {
 			setRowSelection({});
 		}
+		prevModalOpen.current = isModalOpen;
 	}, [isModalOpen, setRowSelection]);
+
+	const handleTabChange = (tab: TabValue) => {
+		navigate({
+			to: "/tasks",
+			search: tab === "all" ? {} : { tab },
+			replace: true,
+		});
+	};
 
 	const handleTaskClick = (task: TaskWithStatus) => {
 		navigate({
 			to: "/tasks/$taskId",
 			params: { taskId: task.id },
+			search: currentTab === "all" ? {} : { tab: currentTab },
 		});
 	};
 
@@ -88,7 +103,7 @@ export function TasksView() {
 			{!showLinearCTA && (
 				<TasksTopBar
 					currentTab={currentTab}
-					onTabChange={setCurrentTab}
+					onTabChange={handleTabChange}
 					searchQuery={searchQuery}
 					onSearchChange={setSearchQuery}
 					assigneeFilter={assigneeFilter}
