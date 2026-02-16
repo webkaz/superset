@@ -110,7 +110,7 @@ export function useTasksTable({
 		return [...allData].sort(compareTasks);
 	}, [allData]);
 
-	const { search } = useHybridSearch<TaskWithStatus>(sortedData);
+	const { search } = useHybridSearch(sortedData);
 
 	const data = useMemo(() => {
 		if (!searchQuery.trim()) {

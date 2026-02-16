@@ -30,10 +30,6 @@ import type {
 } from "../types";
 import { scrollToBottom } from "../utils";
 
-type DebouncedTitleSetter = ((tabId: string, title: string) => void) & {
-	cancel?: () => void;
-};
-
 type RegisterCallback = (paneId: string, callback: () => void) => void;
 type UnregisterCallback = (paneId: string) => void;
 
@@ -121,13 +117,21 @@ export interface UseTerminalLifecycleOptions {
 	resetModes: () => void;
 	isAlternateScreenRef: MutableRefObject<boolean>;
 	isBracketedPasteRef: MutableRefObject<boolean>;
-	debouncedSetTabAutoTitleRef: MutableRefObject<DebouncedTitleSetter>;
+	setPaneNameRef: MutableRefObject<(paneId: string, name: string) => void>;
 	renameUnnamedWorkspaceRef: MutableRefObject<(title: string) => void>;
 	handleTerminalFocusRef: MutableRefObject<() => void>;
 	registerClearCallbackRef: MutableRefObject<RegisterCallback>;
 	unregisterClearCallbackRef: MutableRefObject<UnregisterCallback>;
 	registerScrollToBottomCallbackRef: MutableRefObject<RegisterCallback>;
 	unregisterScrollToBottomCallbackRef: MutableRefObject<UnregisterCallback>;
+	registerGetSelectionCallbackRef: MutableRefObject<
+		(paneId: string, callback: () => string) => void
+	>;
+	unregisterGetSelectionCallbackRef: MutableRefObject<UnregisterCallback>;
+	registerPasteCallbackRef: MutableRefObject<
+		(paneId: string, callback: (text: string) => void) => void
+	>;
+	unregisterPasteCallbackRef: MutableRefObject<UnregisterCallback>;
 }
 
 export interface UseTerminalLifecycleReturn {
@@ -173,13 +177,17 @@ export function useTerminalLifecycle({
 	resetModes,
 	isAlternateScreenRef,
 	isBracketedPasteRef,
-	debouncedSetTabAutoTitleRef,
+	setPaneNameRef,
 	renameUnnamedWorkspaceRef,
 	handleTerminalFocusRef,
 	registerClearCallbackRef,
 	unregisterClearCallbackRef,
 	registerScrollToBottomCallbackRef,
 	unregisterScrollToBottomCallbackRef,
+	registerGetSelectionCallbackRef,
+	unregisterGetSelectionCallbackRef,
+	registerPasteCallbackRef,
+	unregisterPasteCallbackRef,
 }: UseTerminalLifecycleOptions): UseTerminalLifecycleReturn {
 	const [xtermInstance, setXtermInstance] = useState<XTerm | null>(null);
 	const restartTerminalRef = useRef<() => void>(() => {});
@@ -319,7 +327,7 @@ export function useTerminalLifecycle({
 				if (!isAlternateScreenRef.current) {
 					const title = sanitizeForTitle(commandBufferRef.current);
 					if (title) {
-						debouncedSetTabAutoTitleRef.current(tabIdRef.current, title);
+						setPaneNameRef.current(paneId, title);
 					}
 				}
 				commandBufferRef.current = "";
@@ -466,7 +474,7 @@ export function useTerminalLifecycle({
 		const keyDisposable = xterm.onKey(handleKeyPress);
 		const titleDisposable = xterm.onTitleChange((title) => {
 			if (title) {
-				debouncedSetTabAutoTitleRef.current(tabIdRef.current, title);
+				setPaneNameRef.current(paneId, title);
 				renameUnnamedWorkspaceRef.current(title);
 			}
 		});
@@ -493,6 +501,23 @@ export function useTerminalLifecycle({
 		});
 		registerClearCallbackRef.current(paneId, handleClear);
 		registerScrollToBottomCallbackRef.current(paneId, handleScrollToBottom);
+
+		const handleGetSelection = () => {
+			const selection = xterm.getSelection();
+			if (!selection) return "";
+			return selection
+				.split("\n")
+				.map((line) => line.trimEnd())
+				.join("\n");
+		};
+
+		const handlePaste = (text: string) => {
+			if (isExitedRef.current) return;
+			xterm.paste(text);
+		};
+
+		registerGetSelectionCallbackRef.current(paneId, handleGetSelection);
+		registerPasteCallbackRef.current(paneId, handlePaste);
 
 		const cleanupFocus = setupFocusListener(xterm, () =>
 			handleTerminalFocusRef.current(),
@@ -562,7 +587,8 @@ export function useTerminalLifecycle({
 			cleanupQuerySuppression();
 			unregisterClearCallbackRef.current(paneId);
 			unregisterScrollToBottomCallbackRef.current(paneId);
-			debouncedSetTabAutoTitleRef.current?.cancel?.();
+			unregisterGetSelectionCallbackRef.current(paneId);
+			unregisterPasteCallbackRef.current(paneId);
 
 			if (isPaneDestroyedInStore()) {
 				// Pane was explicitly destroyed, so kill the session.

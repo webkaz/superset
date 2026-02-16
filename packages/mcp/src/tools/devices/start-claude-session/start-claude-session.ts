@@ -1,53 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "@superset/db/client";
 import { taskStatuses, tasks } from "@superset/db/schema";
+import { buildClaudeCommand } from "@superset/shared/claude-command";
 import { and, eq, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { executeOnDevice, getMcpContext } from "../../utils";
-
-function buildCommand(
-	task: NonNullable<Awaited<ReturnType<typeof fetchTask>>>,
-): string {
-	const metadata = [
-		`Priority: ${task.priority}`,
-		task.statusName && `Status: ${task.statusName}`,
-		task.labels?.length && `Labels: ${task.labels.join(", ")}`,
-	]
-		.filter(Boolean)
-		.join("\n");
-
-	const prompt = `You are working on task "${task.title}" (${task.slug}).
-
-${metadata}
-
-## Task Description
-
-${task.description || "No description provided."}
-
-## Instructions
-
-You are running fully autonomously. Do not ask questions or wait for user feedback — make all decisions independently based on the codebase and task description.
-
-1. Explore the codebase to understand the relevant code and architecture
-2. Create a detailed execution plan for this task including:
-   - Purpose and scope of the changes
-   - Key assumptions
-   - Concrete implementation steps with specific files to modify
-   - How to validate the changes work correctly
-3. Implement the plan
-4. Verify your changes work correctly (run relevant tests, typecheck, lint)
-5. When done, use the Superset MCP \`update_task\` tool to update task "${task.id}" with a summary of what was done`;
-
-	const delimiter = `SUPERSET_PROMPT_${crypto.randomUUID().replaceAll("-", "")}`;
-
-	return [
-		`claude --dangerously-skip-permissions "$(cat <<'${delimiter}'`,
-		prompt,
-		delimiter,
-		')"',
-	].join("\n");
-}
 
 async function fetchTask({
 	taskId,
@@ -81,7 +39,19 @@ async function fetchTask({
 	return task ?? null;
 }
 
-function validateArgs(args: Record<string, unknown>): {
+function validateSessionArgs(args: Record<string, unknown>): {
+	deviceId: string;
+	taskId: string;
+	workspaceId: string;
+} | null {
+	const deviceId = args.deviceId as string;
+	const taskId = args.taskId as string;
+	const workspaceId = args.workspaceId as string;
+	if (!deviceId || !taskId || !workspaceId) return null;
+	return { deviceId, taskId, workspaceId };
+}
+
+function validateSubagentArgs(args: Record<string, unknown>): {
 	deviceId: string;
 	taskId: string;
 } | null {
@@ -91,9 +61,22 @@ function validateArgs(args: Record<string, unknown>): {
 	return { deviceId, taskId };
 }
 
-const ERROR_DEVICE_AND_TASK_REQUIRED = {
+const ERROR_SESSION_ARGS_REQUIRED = {
 	content: [
-		{ type: "text" as const, text: "Error: deviceId and taskId are required" },
+		{
+			type: "text" as const,
+			text: "Error: deviceId, taskId, and workspaceId are required",
+		},
+	],
+	isError: true,
+};
+
+const ERROR_SUBAGENT_ARGS_REQUIRED = {
+	content: [
+		{
+			type: "text" as const,
+			text: "Error: deviceId and taskId are required",
+		},
 	],
 	isError: true,
 };
@@ -108,16 +91,21 @@ export function register(server: McpServer) {
 		"start_claude_session",
 		{
 			description:
-				"Start an autonomous Claude Code session for a task. Creates a new workspace with its own git branch and launches Claude with the task context.",
+				"Start an autonomous Claude Code session for a task in an existing workspace. Launches Claude with the task context in the specified workspace. The target device must belong to the current user.",
 			inputSchema: {
 				deviceId: z.string().describe("Target device ID"),
 				taskId: z.string().describe("Task ID to work on"),
+				workspaceId: z
+					.string()
+					.describe(
+						"Workspace ID to run the session in (from create_workspace)",
+					),
 			},
 		},
 		async (args, extra) => {
 			const ctx = getMcpContext(extra);
-			const validated = validateArgs(args);
-			if (!validated) return ERROR_DEVICE_AND_TASK_REQUIRED;
+			const validated = validateSessionArgs(args);
+			if (!validated) return ERROR_SESSION_ARGS_REQUIRED;
 
 			const task = await fetchTask({
 				taskId: validated.taskId,
@@ -129,7 +117,11 @@ export function register(server: McpServer) {
 				ctx,
 				deviceId: validated.deviceId,
 				tool: "start_claude_session",
-				params: { command: buildCommand(task), name: task.slug },
+				params: {
+					command: buildClaudeCommand({ task, randomId: crypto.randomUUID() }),
+					name: task.slug,
+					workspaceId: validated.workspaceId,
+				},
 			});
 		},
 	);
@@ -138,7 +130,7 @@ export function register(server: McpServer) {
 		"start_claude_subagent",
 		{
 			description:
-				"Start a Claude Code subagent for a task in an existing workspace. Adds a new terminal pane to the active workspace instead of creating a new one. Use this when you want to run Claude alongside your current work.",
+				"Start a Claude Code subagent for a task in an existing workspace. Adds a new terminal pane to the active workspace instead of creating a new one. Use this when you want to run Claude alongside your current work. The target device must belong to the current user.",
 			inputSchema: {
 				deviceId: z.string().describe("Target device ID"),
 				taskId: z.string().describe("Task ID to work on"),
@@ -146,8 +138,8 @@ export function register(server: McpServer) {
 		},
 		async (args, extra) => {
 			const ctx = getMcpContext(extra);
-			const validated = validateArgs(args);
-			if (!validated) return ERROR_DEVICE_AND_TASK_REQUIRED;
+			const validated = validateSubagentArgs(args);
+			if (!validated) return ERROR_SUBAGENT_ARGS_REQUIRED;
 
 			const task = await fetchTask({
 				taskId: validated.taskId,
@@ -159,7 +151,9 @@ export function register(server: McpServer) {
 				ctx,
 				deviceId: validated.deviceId,
 				tool: "start_claude_subagent",
-				params: { command: buildCommand(task) },
+				params: {
+					command: buildClaudeCommand({ task, randomId: crypto.randomUUID() }),
+				},
 			});
 		},
 	);

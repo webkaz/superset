@@ -35,13 +35,15 @@ export function useCreateWorkspace(options?: UseCreateWorkspaceOptions) {
 				updateProgress(optimisticProgress);
 			}
 
-			addPendingTerminalSetup({
-				workspaceId: data.workspace.id,
-				projectId: data.projectId,
-				initialCommands: options?.resolveInitialCommands
-					? options.resolveInitialCommands(data.initialCommands)
-					: data.initialCommands,
-			});
+			if (!data.wasExisting) {
+				addPendingTerminalSetup({
+					workspaceId: data.workspace.id,
+					projectId: data.projectId,
+					initialCommands: options?.resolveInitialCommands
+						? options.resolveInitialCommands(data.initialCommands)
+						: data.initialCommands,
+				});
+			}
 
 			await utils.workspaces.invalidate();
 

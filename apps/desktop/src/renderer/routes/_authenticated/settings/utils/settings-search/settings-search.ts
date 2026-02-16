@@ -15,14 +15,18 @@ export const SETTING_ITEM_ID = {
 	APPEARANCE_THEME: "appearance-theme",
 	APPEARANCE_MARKDOWN: "appearance-markdown",
 	APPEARANCE_CUSTOM_THEMES: "appearance-custom-themes",
+	APPEARANCE_EDITOR_FONT: "appearance-editor-font",
+	APPEARANCE_TERMINAL_FONT: "appearance-terminal-font",
 
 	RINGTONES_NOTIFICATION: "ringtones-notification",
 
 	KEYBOARD_SHORTCUTS: "keyboard-shortcuts",
 
 	BEHAVIOR_CONFIRM_QUIT: "behavior-confirm-quit",
+	BEHAVIOR_DELETE_LOCAL_BRANCH: "behavior-delete-local-branch",
 	BEHAVIOR_BRANCH_PREFIX: "behavior-branch-prefix",
 	BEHAVIOR_TELEMETRY: "behavior-telemetry",
+	BEHAVIOR_FILE_OPEN_MODE: "behavior-file-open-mode",
 
 	TERMINAL_PRESETS: "terminal-presets",
 	TERMINAL_QUICK_ADD: "terminal-quick-add",
@@ -42,10 +46,7 @@ export const SETTING_ITEM_ID = {
 	PROJECT_PATH: "project-path",
 	PROJECT_SCRIPTS: "project-scripts",
 	PROJECT_BRANCH_PREFIX: "project-branch-prefix",
-
-	WORKSPACE_NAME: "workspace-name",
-	WORKSPACE_BRANCH: "workspace-branch",
-	WORKSPACE_PATH: "workspace-path",
+	PROJECT_ENV_VARS: "project-env-vars",
 
 	// API Keys
 	API_KEYS_LIST: "api-keys-list",
@@ -250,6 +251,42 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
 		],
 	},
 	{
+		id: SETTING_ITEM_ID.APPEARANCE_EDITOR_FONT,
+		section: "appearance",
+		title: "Editor Font",
+		description: "Font used in diff views and file editors",
+		keywords: [
+			"appearance",
+			"font",
+			"family",
+			"size",
+			"editor",
+			"diff",
+			"mono",
+			"monospace",
+			"typography",
+			"custom",
+		],
+	},
+	{
+		id: SETTING_ITEM_ID.APPEARANCE_TERMINAL_FONT,
+		section: "appearance",
+		title: "Terminal Font",
+		description: "Font used in terminal panels",
+		keywords: [
+			"appearance",
+			"font",
+			"family",
+			"size",
+			"terminal",
+			"mono",
+			"monospace",
+			"typography",
+			"custom",
+			"nerd",
+		],
+	},
+	{
 		id: SETTING_ITEM_ID.RINGTONES_NOTIFICATION,
 		section: "ringtones",
 		title: "Notification Sound",
@@ -309,6 +346,24 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
 		],
 	},
 	{
+		id: SETTING_ITEM_ID.BEHAVIOR_DELETE_LOCAL_BRANCH,
+		section: "behavior",
+		title: "Delete local branch on workspace removal",
+		description:
+			"Also delete the local git branch when deleting a worktree workspace",
+		keywords: [
+			"features",
+			"delete",
+			"branch",
+			"local",
+			"worktree",
+			"workspace",
+			"remove",
+			"cleanup",
+			"git",
+		],
+	},
+	{
 		id: SETTING_ITEM_ID.BEHAVIOR_BRANCH_PREFIX,
 		section: "behavior",
 		title: "Branch Prefix",
@@ -343,6 +398,25 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
 			"metrics",
 			"opt out",
 			"disable",
+		],
+	},
+	{
+		id: SETTING_ITEM_ID.BEHAVIOR_FILE_OPEN_MODE,
+		section: "behavior",
+		title: "File open mode",
+		description:
+			"Choose how files open when clicked in the file tree or changes view",
+		keywords: [
+			"file",
+			"open",
+			"mode",
+			"split",
+			"pane",
+			"tab",
+			"new tab",
+			"split pane",
+			"viewer",
+			"behavior",
 		],
 	},
 	{
@@ -386,8 +460,9 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
 	{
 		id: SETTING_ITEM_ID.TERMINAL_AUTO_APPLY_PRESET,
 		section: "terminal",
-		title: "Auto-apply Default Preset",
-		description: "Automatically apply default preset when creating workspaces",
+		title: "Auto-Apply Default Preset",
+		description:
+			"Automatically apply the workspace creation preset when creating new workspaces",
 		keywords: [
 			"terminal",
 			"preset",
@@ -605,35 +680,19 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
 		],
 	},
 	{
-		id: SETTING_ITEM_ID.WORKSPACE_NAME,
-		section: "workspace",
-		title: "Workspace Name",
-		description: "The name of this workspace",
-		keywords: ["workspace", "name", "rename", "title", "label"],
-	},
-	{
-		id: SETTING_ITEM_ID.WORKSPACE_BRANCH,
-		section: "workspace",
-		title: "Branch",
-		description: "The git branch for this workspace",
+		id: SETTING_ITEM_ID.PROJECT_ENV_VARS,
+		section: "project",
+		title: "Environment Variables",
+		description: "Manage environment variables and secrets for cloud sandboxes",
 		keywords: [
-			"workspace",
-			"branch",
-			"git",
-			"worktree",
-			"checkout",
-			"switch",
-			"feature",
+			"environment",
+			"variables",
+			"secrets",
+			"env",
+			"cloud",
+			"sandbox",
 		],
 	},
-	{
-		id: SETTING_ITEM_ID.WORKSPACE_PATH,
-		section: "workspace",
-		title: "File Path",
-		description: "The file path to this workspace",
-		keywords: ["workspace", "path", "folder", "directory", "location", "root"],
-	},
-
 	// API Keys
 	{
 		id: SETTING_ITEM_ID.API_KEYS_LIST,

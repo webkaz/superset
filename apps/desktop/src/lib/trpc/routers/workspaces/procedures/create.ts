@@ -10,6 +10,8 @@ import { z } from "zod";
 import { publicProcedure, router } from "../../..";
 import {
 	activateProject,
+	findOrphanedWorktreeByBranch,
+	findWorktreeWorkspaceByBranch,
 	getBranchWorkspace,
 	getMaxWorkspaceTabOrder,
 	getProject,
@@ -90,7 +92,6 @@ interface HandleExistingWorktreeParams {
 	prInfo: PullRequestInfo;
 	localBranchName: string;
 	workspaceName: string;
-	setupConfig: { setup?: string[] } | null;
 }
 
 function handleExistingWorktree({
@@ -99,7 +100,6 @@ function handleExistingWorktree({
 	prInfo,
 	localBranchName,
 	workspaceName,
-	setupConfig,
 }: HandleExistingWorktreeParams): PrWorkspaceResult {
 	const existingWorkspace = localDb
 		.select()
@@ -144,6 +144,12 @@ function handleExistingWorktree({
 		pr_number: prInfo.number,
 	});
 
+	const setupConfig = loadSetupConfig({
+		mainRepoPath: project.mainRepoPath,
+		worktreePath: existingWorktree.path,
+		projectId: project.id,
+	});
+
 	return {
 		workspace,
 		initialCommands: setupConfig?.setup || null,
@@ -160,7 +166,6 @@ interface HandleNewWorktreeParams {
 	prInfo: PullRequestInfo;
 	localBranchName: string;
 	workspaceName: string;
-	setupConfig: { setup?: string[] } | null;
 }
 
 async function handleNewWorktree({
@@ -168,7 +173,6 @@ async function handleNewWorktree({
 	prInfo,
 	localBranchName,
 	workspaceName,
-	setupConfig,
 }: HandleNewWorktreeParams): Promise<PrWorkspaceResult> {
 	const existingWorktreePath = await getBranchWorktreePath({
 		mainRepoPath: project.mainRepoPath,
@@ -244,6 +248,12 @@ async function handleNewWorktree({
 		mainRepoPath: project.mainRepoPath,
 		useExistingBranch: true,
 		skipWorktreeCreation: true,
+	});
+
+	const setupConfig = loadSetupConfig({
+		mainRepoPath: project.mainRepoPath,
+		worktreePath,
+		projectId: project.id,
 	});
 
 	return {
@@ -351,6 +361,54 @@ export const createCreateProcedures = () => {
 					});
 				}
 
+				// Idempotency check: only for explicit branch names (auto-generated are intentionally new)
+				if (input.branchName?.trim()) {
+					const existing = findWorktreeWorkspaceByBranch({
+						projectId: input.projectId,
+						branch,
+					});
+					if (existing) {
+						touchWorkspace(existing.workspace.id);
+						setLastActiveWorkspace(existing.workspace.id);
+						activateProject(project);
+						return {
+							workspace: existing.workspace,
+							initialCommands: null,
+							worktreePath: existing.worktree.path,
+							projectId: project.id,
+							isInitializing: false,
+							wasExisting: true,
+						};
+					}
+
+					const orphanedWorktree = findOrphanedWorktreeByBranch({
+						projectId: input.projectId,
+						branch,
+					});
+					if (orphanedWorktree) {
+						const workspace = createWorkspaceFromWorktree({
+							projectId: input.projectId,
+							worktreeId: orphanedWorktree.id,
+							branch,
+							name: input.name ?? branch,
+						});
+						activateProject(project);
+						const setupConfig = loadSetupConfig({
+							mainRepoPath: project.mainRepoPath,
+							worktreePath: orphanedWorktree.path,
+							projectId: project.id,
+						});
+						return {
+							workspace,
+							initialCommands: setupConfig?.setup || null,
+							worktreePath: orphanedWorktree.path,
+							projectId: project.id,
+							isInitializing: false,
+							wasExisting: true,
+						};
+					}
+				}
+
 				const worktreePath = join(
 					homedir(),
 					SUPERSET_DIR_NAME,
@@ -414,7 +472,11 @@ export const createCreateProcedures = () => {
 					useExistingBranch: input.useExistingBranch,
 				});
 
-				const setupConfig = loadSetupConfig(project.mainRepoPath);
+				const setupConfig = loadSetupConfig({
+					mainRepoPath: project.mainRepoPath,
+					worktreePath,
+					projectId: project.id,
+				});
 
 				return {
 					workspace,
@@ -422,6 +484,7 @@ export const createCreateProcedures = () => {
 					worktreePath,
 					projectId: project.id,
 					isInitializing: true,
+					wasExisting: false,
 				};
 			}),
 
@@ -456,8 +519,7 @@ export const createCreateProcedures = () => {
 						existingBranchWorkspace.branch !== branch
 					) {
 						throw new Error(
-							`A main workspace already exists on branch "${existingBranchWorkspace.branch}". ` +
-								`Use the branch switcher to change branches.`,
+							`A main workspace already exists on branch "${existingBranchWorkspace.branch}".`,
 						);
 					}
 					await safeCheckoutBranch(project.mainRepoPath, input.branch);
@@ -601,7 +663,11 @@ export const createCreateProcedures = () => {
 				setLastActiveWorkspace(workspace.id);
 				activateProject(project);
 
-				const setupConfig = loadSetupConfig(project.mainRepoPath);
+				const setupConfig = loadSetupConfig({
+					mainRepoPath: project.mainRepoPath,
+					worktreePath: worktree.path,
+					projectId: project.id,
+				});
 
 				track("workspace_opened", {
 					workspace_id: workspace.id,
@@ -659,6 +725,8 @@ export const createCreateProcedures = () => {
 								gitStatus: {
 									branch: existingWorktree.branch,
 									needsRebase: false,
+									ahead: 0,
+									behind: 0,
 									lastRefreshed: Date.now(),
 								},
 							})
@@ -710,7 +778,11 @@ export const createCreateProcedures = () => {
 						project.mainRepoPath,
 						existingWorktree.path,
 					);
-					const setupConfig = loadSetupConfig(project.mainRepoPath);
+					const setupConfig = loadSetupConfig({
+						mainRepoPath: project.mainRepoPath,
+						worktreePath: existingWorktree.path,
+						projectId: project.id,
+					});
 
 					track("workspace_opened", {
 						workspace_id: workspace.id,
@@ -739,6 +811,8 @@ export const createCreateProcedures = () => {
 						gitStatus: {
 							branch: input.branch,
 							needsRebase: false,
+							ahead: 0,
+							behind: 0,
 							lastRefreshed: Date.now(),
 						},
 					})
@@ -763,7 +837,11 @@ export const createCreateProcedures = () => {
 				activateProject(project);
 
 				copySupersetConfigToWorktree(project.mainRepoPath, input.worktreePath);
-				const setupConfig = loadSetupConfig(project.mainRepoPath);
+				const setupConfig = loadSetupConfig({
+					mainRepoPath: project.mainRepoPath,
+					worktreePath: input.worktreePath,
+					projectId: project.id,
+				});
 
 				track("workspace_created", {
 					workspace_id: workspace.id,
@@ -809,7 +887,6 @@ export const createCreateProcedures = () => {
 
 				const localBranchName = getPrLocalBranchName(prInfo);
 				const workspaceName = getPrWorkspaceName(prInfo);
-				const setupConfig = loadSetupConfig(project.mainRepoPath);
 
 				const existingWorktree = localDb
 					.select()
@@ -829,7 +906,6 @@ export const createCreateProcedures = () => {
 						prInfo,
 						localBranchName,
 						workspaceName,
-						setupConfig,
 					});
 				}
 
@@ -838,7 +914,6 @@ export const createCreateProcedures = () => {
 					prInfo,
 					localBranchName,
 					workspaceName,
-					setupConfig,
 				});
 			}),
 	});

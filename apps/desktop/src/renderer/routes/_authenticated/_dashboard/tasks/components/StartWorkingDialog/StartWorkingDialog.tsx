@@ -20,7 +20,10 @@ import { useEffect, useRef, useState } from "react";
 import { HiCheck, HiChevronDown, HiXMark } from "react-icons/hi2";
 import { LuFolderOpen, LuLoader } from "react-icons/lu";
 import { electronTrpc } from "renderer/lib/electron-trpc";
-import { useOpenNew } from "renderer/react-query/projects";
+import {
+	processOpenNewResults,
+	useOpenNew,
+} from "renderer/react-query/projects";
 import { useCreateWorkspace } from "renderer/react-query/workspaces";
 import {
 	useCloseStartWorkingModal,
@@ -114,15 +117,23 @@ export function StartWorkingDialog() {
 		try {
 			const result = await openNew.mutateAsync(undefined);
 			if (result.canceled) return;
+
 			if ("error" in result) {
 				toast.error("Failed to open project", { description: result.error });
 				return;
 			}
-			if ("needsGitInit" in result) {
-				toast.error("Selected folder is not a git repository");
-				return;
+
+			if ("results" in result) {
+				const { successes } = processOpenNewResults({
+					results: result.results,
+					showSuccessToast: false,
+					showGitInitToast: true,
+				});
+
+				if (successes.length > 0) {
+					setSelectedProjectId(successes[0].project.id);
+				}
 			}
-			setSelectedProjectId(result.project.id);
 		} catch (error) {
 			toast.error("Failed to open project", {
 				description:

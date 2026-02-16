@@ -1,9 +1,8 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { projects, workspaces, worktrees } from "@superset/local-db";
 import { TRPCError } from "@trpc/server";
 import { observable } from "@trpc/server/observable";
 import { eq } from "drizzle-orm";
+import { appState } from "main/lib/app-state";
 import { localDb } from "main/lib/local-db";
 import { getDaemonTerminalManager } from "main/lib/terminal";
 import {
@@ -16,6 +15,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "../..";
 import { assertWorkspaceUsable } from "../workspaces/utils/usability";
 import { getWorkspacePath } from "../workspaces/utils/worktree";
+import { resolveTerminalThemeType } from "./theme-type";
 import { resolveCwd } from "./utils";
 
 const DEBUG_TERMINAL = process.env.SUPERSET_TERMINAL_DEBUG === "1";
@@ -68,6 +68,7 @@ export const createTerminalRouter = () => {
 					initialCommands: z.array(z.string()).optional(),
 					skipColdRestore: z.boolean().optional(),
 					allowKilled: z.boolean().optional(),
+					themeType: z.enum(["dark", "light"]).optional(),
 				}),
 			)
 			.mutation(async ({ input }) => {
@@ -83,6 +84,7 @@ export const createTerminalRouter = () => {
 					initialCommands,
 					skipColdRestore,
 					allowKilled,
+					themeType,
 				} = input;
 
 				const workspace = localDb
@@ -117,6 +119,10 @@ export const createTerminalRouter = () => {
 							.where(eq(projects.id, workspace.projectId))
 							.get()
 					: undefined;
+				const resolvedThemeType = resolveTerminalThemeType({
+					requestedThemeType: themeType,
+					persistedThemeState: appState.data.themeState,
+				});
 
 				try {
 					const result = await terminal.createOrAttach({
@@ -132,6 +138,7 @@ export const createTerminalRouter = () => {
 						initialCommands,
 						skipColdRestore,
 						allowKilled,
+						themeType: resolvedThemeType,
 					});
 
 					if (DEBUG_TERMINAL) {
@@ -451,51 +458,6 @@ export const createTerminalRouter = () => {
 					.where(eq(worktrees.id, workspace.worktreeId))
 					.get();
 				return worktree?.path ?? null;
-			}),
-
-		listDirectory: publicProcedure
-			.input(
-				z.object({
-					dirPath: z.string(),
-				}),
-			)
-			.query(async ({ input }) => {
-				const { dirPath } = input;
-
-				try {
-					const entries = await fs.readdir(dirPath, { withFileTypes: true });
-
-					const items = entries
-						.filter((entry) => !entry.name.startsWith("."))
-						.map((entry) => ({
-							name: entry.name,
-							path: path.join(dirPath, entry.name),
-							isDirectory: entry.isDirectory(),
-						}))
-						.sort((a, b) => {
-							// Directories first, then alphabetical
-							if (a.isDirectory && !b.isDirectory) return -1;
-							if (!a.isDirectory && b.isDirectory) return 1;
-							return a.name.localeCompare(b.name);
-						});
-
-					// Get parent directory
-					const parentPath = path.dirname(dirPath);
-					const hasParent = parentPath !== dirPath;
-
-					return {
-						currentPath: dirPath,
-						parentPath: hasParent ? parentPath : null,
-						items,
-					};
-				} catch {
-					return {
-						currentPath: dirPath,
-						parentPath: null,
-						items: [],
-						error: "Unable to read directory",
-					};
-				}
 			}),
 
 		stream: publicProcedure

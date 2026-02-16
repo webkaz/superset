@@ -104,6 +104,7 @@ export interface CreateSessionParams {
 	skipColdRestore?: boolean;
 	/** Allow restarting a session that was explicitly killed */
 	allowKilled?: boolean;
+	themeType?: "dark" | "light";
 }
 
 export interface InternalCreateSessionParams extends CreateSessionParams {

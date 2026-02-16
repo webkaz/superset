@@ -78,7 +78,7 @@ Any Client (Web/Desktop/Mobile)
 
 ## Key Design Decisions
 
-1. **Vendor `@electric-sql/durable-session`** — Not published to npm. Vendored from [electric-sql/transport](https://github.com/electric-sql/transport) (~35 files, ~4500 LOC). Gives us reactive collections, optimistic mutations, TanStack AI compatibility.
+1. **Vendor `@electric-sql/durable-session`** — Not published to npm. Vendored from [electric-sql/transport](https://github.com/electric-sql/transport) into `packages/durable-session/` (~20 files). Required compatibility fixes for unreleased `@tanstack/db` aggregates (`collect`, `minStr`) and `@tanstack/ai` types. Gives us reactive collections, optimistic mutations, TanStack AI compatibility.
 2. **Proxy pattern** — Proxy handles message writing, agent invocation, stream fan-out. Clients never write to durable stream directly.
 3. **Agent endpoint** — Claude SDK runs as an "agent" the proxy calls via HTTP. Agent handles entire tool loop server-side. Returns standard TanStack AI SSE chunks.
 4. **TanStack AI message format** — Messages use `parts: MessagePart[]` (TextPart, ToolCallPart, ToolResultPart, ThinkingPart) not Anthropic-specific `BetaContentBlock[]`. SDK output converted at the agent boundary.
@@ -111,22 +111,23 @@ The agent endpoint converts these to TanStack AI `StreamChunk` format before wri
 | Auth (buildClaudeEnv) | DONE — `apps/desktop/src/lib/trpc/routers/ai-chat/utils/auth/auth.ts` |
 | Session manager (v1) | DONE — `apps/desktop/src/lib/trpc/routers/ai-chat/utils/session-manager/session-manager.ts` |
 | Desktop tRPC router | DONE — `apps/desktop/src/lib/trpc/routers/ai-chat/index.ts` |
-| Durable stream server (v1) | DONE — `apps/streams/` (custom HTTP proxy + session registry) |
-| Stream client (v1) | DONE — `packages/ai-chat/src/stream/client.ts` (custom DurableChatClient) |
-| Stream hook (v1) | DONE — `packages/ai-chat/src/stream/useChatSession.ts` (custom hook) |
-| Custom materialization (v1) | DONE — `packages/ai-chat/src/stream/materialize.ts` |
-| ChatInput component | DONE — `packages/ai-chat/src/components/ChatInput/` |
-| PresenceBar component | DONE — `packages/ai-chat/src/components/PresenceBar/` |
+| Durable stream server (v1) | DONE — `apps/streams/` (vendored proxy from electric-sql/transport) |
+| Vendored durable-session client | DONE — `packages/durable-session/` (vendored from electric-sql/transport) |
+| React hook (useDurableChat) | DONE — `packages/durable-session/src/react/use-durable-chat.ts` |
+| ChatInput component | DONE — `packages/durable-session/src/react/components/ChatInput/` |
+| PresenceBar component | DONE — `packages/durable-session/src/react/components/PresenceBar/` |
+| Old ai-chat package | REMOVED — replaced by `@superset/durable-session` |
+| Vendored proxy (A2) | DONE — `apps/streams/src/` (vendored from electric-sql/transport, JSON.stringify fix for DurableStream.append) |
+| Claude agent endpoint (B) | DONE — `apps/streams/src/claude-agent.ts` + `apps/streams/src/sdk-to-ai-chunks.ts` |
 | Database schema | NOT BUILT |
 | API chat router | NOT BUILT |
 | Desktop chat UI (renderer) | NOT BUILT |
 | Web chat UI | NOT BUILT |
 | Message rendering component | NOT BUILT |
-| Vendored durable-session | NOT BUILT — **Next phase** |
 
 ---
 
-## Phase A: Vendor `@electric-sql/durable-session` ← NEXT
+## Phase A: Vendor `@electric-sql/durable-session`
 
 Source: [electric-sql/transport](https://github.com/electric-sql/transport) (unpublished, Apache-2.0)
 
@@ -135,7 +136,7 @@ Reference source cloned to `/tmp/electric-sql-transport/` via:
 git clone https://github.com/electric-sql/transport.git /tmp/electric-sql-transport
 ```
 
-### A1. Create `packages/durable-session/`
+### A1. Create `packages/durable-session/` — DONE
 
 Vendor from `packages/durable-session` + `packages/react-durable-session` in the transport repo.
 
@@ -258,9 +259,9 @@ export const sessionStateSchema = createStateSchema({
 
 **Collection pipeline** (`collections/messages.ts`):
 ```
-chunks → groupBy(messageId) + collect(chunk) + minStr(createdAt) + count(chunk)
+chunks → groupBy(messageId) + count(chunk) + min(createdAt)
        → orderBy(startedAt, 'asc')
-       → fn.select(materializeMessage(collected.rows))
+       → fn.select(imperatively gather chunks → materializeMessage(rows))
        → getKey: row.id
 ```
 
@@ -288,7 +289,28 @@ const rawDb = createStreamDB({
 - Auto-connects on mount if `autoConnect: true` (default)
 - Returns TanStack AI-compatible API: messages, sendMessage, isLoading, etc.
 
-### A2. Vendor proxy into `apps/streams/`
+#### Compatibility Fixes Applied
+
+The transport repo uses `workspace:*` (unreleased local versions) of `@tanstack/db`, `@tanstack/ai`, and `@durable-streams/state`. The published npm versions differ, requiring these fixes:
+
+| Issue | Fix |
+|-------|-----|
+| `collect` aggregate not in `@tanstack/db` v0.5.22 | Rewrote `messages.ts`, `session-stats.ts`, `presence.ts` to use `groupBy + count` as change discriminator + `fn.select` with imperative collection filtering |
+| `minStr` aggregate not in `@tanstack/db` v0.5.22 | Replaced with `min()` which handles strings at runtime |
+| `DoneStreamChunk` not in `@tanstack/ai` v0.3.0 | Replaced with `chunk.type === 'RUN_FINISHED'` type guard |
+| `LiveMode` not in `@durable-streams/state` v0.2.1 | Removed import and re-export (was already unused in practice) |
+
+#### UI Components Migrated
+
+`ChatInput` and `PresenceBar` from the old `packages/ai-chat` were moved into `packages/durable-session/src/react/components/`. They are exported from `@superset/durable-session/react`:
+
+```typescript
+import { ChatInput, PresenceBar } from '@superset/durable-session/react'
+```
+
+The old `packages/ai-chat` package has been fully removed.
+
+### A2. Vendor proxy into `apps/streams/` — DONE
 
 Vendor from `packages/durable-session-proxy` in the transport repo.
 
@@ -330,38 +352,36 @@ import type { SessionDB, MessageRow, ModelMessage } from '@superset/durable-sess
 
 #### New entrypoint: `apps/streams/src/index.ts`
 
-Based on vendored `dev.ts` pattern, combined with existing DurableStreamTestServer:
+Based on vendored `dev.ts` pattern, combined with existing DurableStreamTestServer. All env vars are validated via `env.ts` (required, no defaults).
 
 ```typescript
-import { serve } from '@hono/node-server'
 import { DurableStreamTestServer } from '@durable-streams/server'
+import { serve } from '@hono/node-server'
+import { claudeAgentApp } from './claude-agent'
+import { env } from './env'
 import { createServer } from './server'
 
-const PORT = parseInt(process.env.PORT ?? '8080', 10)
-const INTERNAL_PORT = parseInt(process.env.INTERNAL_PORT ?? '8081', 10)
-const DURABLE_STREAMS_URL = process.env.DURABLE_STREAMS_URL ?? `http://127.0.0.1:${INTERNAL_PORT}`
-
-// Start internal durable stream server
-const durableStreamServer = new DurableStreamTestServer({ port: INTERNAL_PORT })
+const durableStreamServer = new DurableStreamTestServer({
+  port: env.STREAMS_INTERNAL_PORT,
+  dataDir: env.STREAMS_DATA_DIR,
+})
 await durableStreamServer.start()
-console.log(`[streams] Durable stream server on port ${INTERNAL_PORT}`)
 
-// Start proxy server
-const { app, protocol } = createServer({
-  baseUrl: DURABLE_STREAMS_URL,
+const { app } = createServer({
+  baseUrl: env.STREAMS_INTERNAL_URL,
   cors: true,
   logging: true,
+  authToken: env.STREAMS_SECRET,
 })
 
-serve({ fetch: app.fetch, port: PORT }, (info) => {
-  console.log(`[streams] Proxy running on http://localhost:${info.port}`)
-})
+serve({ fetch: app.fetch, port: env.PORT })
+serve({ fetch: claudeAgentApp.fetch, port: env.STREAMS_AGENT_PORT })
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  await durableStreamServer.stop()
-  process.exit(0)
-})
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, async () => {
+    /* graceful shutdown */
+  })
+}
 ```
 
 #### Key Protocol Internals (`protocol.ts`, ~917 lines)
@@ -384,13 +404,11 @@ The `AIDBSessionProtocol` class manages:
   "dependencies": {
     "@durable-streams/server": "^0.2.0",
     "@durable-streams/client": "^0.2.0",
+    "@hono/node-server": "^1.13.0",
     "@superset/durable-session": "workspace:*",
     "@tanstack/db": "^0.5.22",
     "hono": "^4.4.0",
     "zod": "^4.1.12"
-  },
-  "devDependencies": {
-    "@hono/node-server": "^1.13.0"
   }
 }
 ```
@@ -430,12 +448,9 @@ app.post('/', async (c) => {
     prompt,
     options: {
       ...(claudeSessionId && { resume: claudeSessionId }),
-      model: process.env.CLAUDE_MODEL ?? 'claude-sonnet-4-5-20250929',
+      model: 'claude-sonnet-4-5-20250929',
       maxTurns: 25,
-      allowedTools: ['computer', 'bash', 'edit', 'browser'],
     },
-    executable: process.env.CLAUDE_BINARY_PATH,
-    env: buildClaudeEnv(), // Auth env vars from desktop
     abortSignal: c.req.raw.signal,
   })
 
@@ -491,10 +506,6 @@ await protocol.registerAgent(sessionId, {
 ```
 
 **Session state:** Maintains `Map<sessionId, claudeSessionId>` for multi-turn resume.
-
-**Binary path:** From `CLAUDE_BINARY_PATH` env var (set by desktop app when starting streams process).
-
-**Auth:** From `CLAUDE_AUTH_*` env vars forwarded from desktop process via `buildClaudeEnv()`.
 
 **Abort handling:** When proxy calls `stopGeneration()`, it aborts the fetch to this endpoint. The agent detects the abort via `c.req.raw.signal` and the `query()` call is interrupted.
 
@@ -592,40 +603,17 @@ type StreamChunk =
 
 ## Phase C: Update Client Packages
 
-### C1. Update `packages/ai-chat`
+### C1. ~~Update `packages/ai-chat`~~ — DONE
 
-**Remove** (replaced by vendored `@superset/durable-session`):
-- `src/stream/client.ts`
-- `src/stream/schema.ts`
-- `src/stream/materialize.ts`
-- `src/stream/materialize.test.ts`
-- `src/stream/useChatSession.ts`
-- `src/stream/useCollectionData.ts`
-- `src/stream/actions.ts`
+`packages/ai-chat` has been fully removed. All stream client code, hooks, materialization, and UI components are now in `packages/durable-session`. Consumers import directly:
 
-**Rewrite** `src/stream/index.ts`:
 ```typescript
-export {
-  DurableChatClient, createDurableChatClient,
-  type MessageRow, type ConnectionStatus, type DurableChatCollections,
-  type DurableChatClientOptions, type AgentSpec,
-  sessionStateSchema, extractTextContent,
-  isUserMessage, isAssistantMessage, messageRowToUIMessage,
-} from "@superset/durable-session"
+// Data layer
+import { DurableChatClient, createDurableChatClient } from '@superset/durable-session'
 
-export {
-  useDurableChat,
-  type UseDurableChatOptions, type UseDurableChatReturn,
-} from "@superset/durable-session/react"
+// React hooks + components
+import { useDurableChat, ChatInput, PresenceBar } from '@superset/durable-session/react'
 ```
-
-**Update** `package.json`:
-- Remove: `@durable-streams/client`, `@durable-streams/state`, `@anthropic-ai/claude-agent-sdk`, `@anthropic-ai/sdk`
-- Add: `@superset/durable-session: workspace:*`
-
-**Update** `src/types.ts`:
-- Remove `StreamEvent`, `StreamEntry`, `Draft` types
-- Keep `PresenceUser`, `ChatMessage`, `ChatSession`
 
 ### C2. Simplify desktop session manager
 
@@ -640,7 +628,7 @@ export {
 **New session manager** — thin HTTP orchestrator:
 
 ```typescript
-const PROXY_URL = process.env.DURABLE_STREAM_URL ?? 'http://localhost:8080'
+const PROXY_URL = process.env.STREAMS_URL || 'http://localhost:8080'
 
 export class ClaudeSessionManager extends EventEmitter {
   private activeSessions = new Map<string, { sessionId: string }>()
@@ -765,47 +753,45 @@ export const chatParticipants = pgTable("chat_participants", {
 
 ---
 
-## Phase F: Desktop Chat UI
+## Phase F: Desktop Chat UI ✅ DONE
+
+Chat pane integrated as a tab type in the desktop workspace view. The UI connects to the durable session proxy via `useDurableChat` and manages session lifecycle through the existing `ai-chat` tRPC router.
 
 ```
-apps/desktop/src/renderer/screens/chat/
-├── index.tsx
-├── components/
-│   ├── ChatSidebar.tsx
-│   ├── ChatMessageList.tsx
-│   ├── ChatMessage.tsx         -- Renders MessageRow with parts: TextPart, ToolCallPart, etc.
-│   ├── ChatInput.tsx           -- Reuse from @superset/ai-chat
-│   ├── PresenceBar.tsx         -- Reuse from @superset/ai-chat
-│   └── TypingIndicator.tsx
-└── stores/
-    └── chat-store.ts
+apps/desktop/src/renderer/.../ChatPane/
+├── ChatPane.tsx                    -- Threads sessionId + cwd from pane store/workspace
+├── ChatInterface/
+│   ├── ChatInterface.tsx           -- Core: useDurableChat + tRPC session lifecycle
+│   ├── constants.ts                -- MODELS, SUGGESTIONS
+│   ├── types.ts                    -- ModelOption
+│   ├── utils/
+│   │   └── map-tool-state.ts       -- Maps TanStack AI ToolCallPart states → ToolDisplayState
+│   └── components/
+│       ├── ChatMessageItem/        -- Renders UIMessage.parts[] (text, thinking, tool-call)
+│       ├── ToolCallBlock/          -- ToolCallPart + ToolResultPart → Tool + Confirmation UI
+│       ├── ModelPicker/
+│       ├── ContextIndicator/
+│       └── PlanBlock/
 ```
 
-Usage in component:
-```tsx
-import { useDurableChat } from "@superset/ai-chat/stream"
+### Session lifecycle
 
-function ChatRoom({ sessionId }: { sessionId: string }) {
-  const {
-    messages, sendMessage, isLoading, connectionStatus,
-    collections, registerAgents,
-  } = useDurableChat({
-    sessionId,
-    proxyUrl: "http://localhost:8080",
-    actorId: userId,
-    actorType: "user",
-  })
+1. `ChatPane` reads `sessionId` from pane store (generated by `createChatPane()`) and `cwd` from workspace query
+2. `ChatInterface` mounts → tRPC `startSession.mutate()` → main process → HTTP PUT to proxy
+3. tRPC `onSuccess` → `useDurableChat.connect()` opens SSE stream from proxy
+4. User sends message → `sendMessage()` → proxy → Claude agent → streamed chunks → reactive UI
+5. Unmount → tRPC `stopSession.mutate()` cleans up
 
-  return (
-    <div>
-      <PresenceBar collections={collections} />
-      {messages.map(msg => <ChatMessage key={msg.id} message={msg} />)}
-      {isLoading && <TypingIndicator />}
-      <ChatInput onSend={sendMessage} />
-    </div>
-  )
-}
-```
+### Type bridge: TanStack AI → UI components
+
+`packages/ui` AI element components define a local `ToolDisplayState` type that covers both TanStack AI states (`awaiting-input`, `input-complete`, `approval-requested`, `approval-responded`) and UI-only states (`input-available`, `output-available`, `output-error`, `output-denied`). The `mapToolCallState()` utility in the desktop app bridges `ToolCallPart.state` → `ToolDisplayState`.
+
+### Environment variables
+
+| Variable | Description |
+|----------|-------------|
+| `STREAMS_URL` | Proxy URL exposed via tRPC `getConfig` query |
+| `STREAMS_SECRET` | Bearer token for authenticated proxy |
 
 ---
 
@@ -838,7 +824,7 @@ Web uses same `useDurableChat` hook pointing at deployed proxy URL.
 | `@tanstack/db-ivm` | ^0.1.17 | durable-session (incremental view maintenance) |
 | `@standard-schema/spec` | ^1.0.0 | durable-session (schema validation) |
 | `hono` | ^4.4.0 | apps/streams (proxy HTTP framework) |
-| `@hono/node-server` | ^1.13.0 | apps/streams (dev server) |
+| `@hono/node-server` | ^1.13.0 | apps/streams (Hono Node.js HTTP adapter) |
 
 **Already installed:**
 - `@durable-streams/client` ^0.2.0, `@durable-streams/server` ^0.2.0, `@durable-streams/state` ^0.2.0
@@ -848,133 +834,152 @@ Web uses same `useDurableChat` hook pointing at deployed proxy URL.
 
 ## Environment Variables
 
+All env vars are required — the streams server throws at startup if any are missing.
+
 ```bash
-# Desktop
-DURABLE_STREAM_URL=http://localhost:8080      # Proxy URL (local dev)
-CLAUDE_BINARY_PATH=...                        # Set by desktop when starting streams
-CLAUDE_AUTH_TOKEN=...                         # Forwarded from desktop auth
+# Streams server (apps/streams)
+PORT=8080                                          # Proxy port (set by Fly.io in production)
+STREAMS_INTERNAL_PORT=8081                         # Internal durable stream server port
+STREAMS_AGENT_PORT=9090                            # Claude agent endpoint port
+STREAMS_INTERNAL_URL=http://127.0.0.1:8081         # Internal durable stream server URL
+STREAMS_DATA_DIR=/data                             # Data directory for LMDB + session persistence
+STREAMS_SECRET=<random-64-char-token>              # Bearer token for /v1/* route auth
+ANTHROPIC_API_KEY=sk-ant-...                       # Claude API key
 
-# Streams server
-PORT=8080                                     # Proxy port
-DURABLE_STREAMS_URL=http://127.0.0.1:8081    # Internal durable stream server
-CLAUDE_BINARY_PATH=...                        # Path to claude binary
-CLAUDE_MODEL=claude-sonnet-4-5-20250929       # Default model
-
-# Production
-DURABLE_STREAM_URL=https://stream.superset.sh
+# Desktop (apps/desktop) — validated in env.main.ts, required
+STREAMS_URL=http://localhost:8080                  # Proxy URL exposed via tRPC getConfig
+STREAMS_SECRET=<same-token>                        # Bearer token for authenticated proxy
 ```
 
 ---
 
 ## Complete File Operations Summary
 
-### Files to CREATE (vendored)
+### Files CREATED (vendored client — Phase A1) ✅
 
-| Destination | Source | Lines |
+All files below are created and typechecking. Compatibility fixes applied for unreleased `@tanstack/db` aggregates (`collect`, `minStr`) and `@tanstack/ai` types (`DoneStreamChunk`).
+
+| Destination | Source | Status |
 |---|---|---|
-| `packages/durable-session/package.json` | NEW | ~30 |
-| `packages/durable-session/tsconfig.json` | NEW | ~8 |
-| `packages/durable-session/src/index.ts` | `durable-session/src/index.ts` | 197 |
-| `packages/durable-session/src/client.ts` | `durable-session/src/client.ts` | ~830 |
-| `packages/durable-session/src/collection.ts` | `durable-session/src/collection.ts` | 155 |
-| `packages/durable-session/src/materialize.ts` | `durable-session/src/materialize.ts` | 251 |
-| `packages/durable-session/src/schema.ts` | `durable-session/src/schema.ts` | 253 |
-| `packages/durable-session/src/types.ts` | `durable-session/src/types.ts` | 422 |
-| `packages/durable-session/src/collections/index.ts` | `durable-session/src/collections/index.ts` | 57 |
-| `packages/durable-session/src/collections/messages.ts` | `durable-session/src/collections/messages.ts` | 225 |
-| `packages/durable-session/src/collections/active-generations.ts` | `durable-session/src/collections/active-generations.ts` | 82 |
-| `packages/durable-session/src/collections/session-meta.ts` | `durable-session/src/collections/session-meta.ts` | 111 |
-| `packages/durable-session/src/collections/session-stats.ts` | `durable-session/src/collections/session-stats.ts` | 265 |
-| `packages/durable-session/src/collections/model-messages.ts` | `durable-session/src/collections/model-messages.ts` | 83 |
-| `packages/durable-session/src/collections/presence.ts` | `durable-session/src/collections/presence.ts` | 77 |
-| `packages/durable-session/src/react/index.ts` | `react-durable-session/src/index.ts` | 88 |
-| `packages/durable-session/src/react/types.ts` | `react-durable-session/src/types.ts` | 119 |
-| `packages/durable-session/src/react/use-durable-chat.ts` | `react-durable-session/src/use-durable-chat.ts` | 341 |
+| `packages/durable-session/package.json` | NEW | ✅ |
+| `packages/durable-session/tsconfig.json` | NEW | ✅ |
+| `packages/durable-session/src/index.ts` | `durable-session/src/index.ts` | ✅ |
+| `packages/durable-session/src/client.ts` | `durable-session/src/client.ts` | ✅ (fixed) |
+| `packages/durable-session/src/collection.ts` | `durable-session/src/collection.ts` | ✅ |
+| `packages/durable-session/src/materialize.ts` | `durable-session/src/materialize.ts` | ✅ (fixed) |
+| `packages/durable-session/src/schema.ts` | `durable-session/src/schema.ts` | ✅ |
+| `packages/durable-session/src/types.ts` | `durable-session/src/types.ts` | ✅ (fixed) |
+| `packages/durable-session/src/collections/index.ts` | `durable-session/src/collections/index.ts` | ✅ |
+| `packages/durable-session/src/collections/messages.ts` | `durable-session/src/collections/messages.ts` | ✅ (rewritten) |
+| `packages/durable-session/src/collections/active-generations.ts` | `durable-session/src/collections/active-generations.ts` | ✅ |
+| `packages/durable-session/src/collections/session-meta.ts` | `durable-session/src/collections/session-meta.ts` | ✅ |
+| `packages/durable-session/src/collections/session-stats.ts` | `durable-session/src/collections/session-stats.ts` | ✅ (rewritten) |
+| `packages/durable-session/src/collections/model-messages.ts` | `durable-session/src/collections/model-messages.ts` | ✅ |
+| `packages/durable-session/src/collections/presence.ts` | `durable-session/src/collections/presence.ts` | ✅ (rewritten) |
+| `packages/durable-session/src/react/index.ts` | `react-durable-session/src/index.ts` | ✅ |
+| `packages/durable-session/src/react/types.ts` | `react-durable-session/src/types.ts` | ✅ |
+| `packages/durable-session/src/react/use-durable-chat.ts` | `react-durable-session/src/use-durable-chat.ts` | ✅ |
+| `packages/durable-session/src/react/components/ChatInput/` | Migrated from `packages/ai-chat` | ✅ |
+| `packages/durable-session/src/react/components/PresenceBar/` | Migrated from `packages/ai-chat` | ✅ |
 
-### Files to CREATE (new code)
+### Files CREATED (Phase B — Claude Agent Endpoint) ✅
 
-| File | Description | Lines (est) |
+| File | Description | Status |
 |---|---|---|
-| `apps/streams/src/claude-agent.ts` | Claude agent HTTP endpoint | ~120 |
-| `apps/streams/src/sdk-to-ai-chunks.ts` | SDKMessage → TanStack AI chunk converter | ~200 |
+| `apps/streams/src/claude-agent.ts` | Claude agent HTTP endpoint (Hono, SSE response) | ✅ |
+| `apps/streams/src/sdk-to-ai-chunks.ts` | SDKMessage → TanStack AI AG-UI chunk converter | ✅ |
 
-### Files to CREATE (vendored proxy)
+### Files CREATED (vendored proxy — Phase A2) ✅
 
-| Destination | Source | Lines |
+All files below are created and typechecking. Compatibility fix: `DurableStream.append()` in published `@durable-streams/client@0.2.1` only accepts `string | Uint8Array`, not `ChangeEvent` objects. All `stream.append(event)` calls wrapped with `JSON.stringify()`.
+
+| Destination | Source | Status |
 |---|---|---|
-| `apps/streams/src/server.ts` | `durable-session-proxy/src/server.ts` | 149 |
-| `apps/streams/src/protocol.ts` | `durable-session-proxy/src/protocol.ts` | 917 |
-| `apps/streams/src/types.ts` | `durable-session-proxy/src/types.ts` | 278 |
-| `apps/streams/src/handlers/index.ts` | `durable-session-proxy/src/handlers/index.ts` | 12 |
-| `apps/streams/src/handlers/send-message.ts` | `durable-session-proxy/src/handlers/send-message.ts` | 81 |
-| `apps/streams/src/handlers/invoke-agent.ts` | `durable-session-proxy/src/handlers/invoke-agent.ts` | 128 |
-| `apps/streams/src/handlers/stream-writer.ts` | `durable-session-proxy/src/handlers/stream-writer.ts` | 124 |
-| `apps/streams/src/routes/index.ts` | `durable-session-proxy/src/routes/index.ts` | 14 |
-| `apps/streams/src/routes/sessions.ts` | `durable-session-proxy/src/routes/sessions.ts` | 136 |
-| `apps/streams/src/routes/messages.ts` | `durable-session-proxy/src/routes/messages.ts` | 99 |
-| `apps/streams/src/routes/agents.ts` | `durable-session-proxy/src/routes/agents.ts` | 58 |
-| `apps/streams/src/routes/stream.ts` | `durable-session-proxy/src/routes/stream.ts` | 162 |
-| `apps/streams/src/routes/tool-results.ts` | `durable-session-proxy/src/routes/tool-results.ts` | 57 |
-| `apps/streams/src/routes/approvals.ts` | `durable-session-proxy/src/routes/approvals.ts` | 58 |
-| `apps/streams/src/routes/health.ts` | `durable-session-proxy/src/routes/health.ts` | 51 |
-| `apps/streams/src/routes/auth.ts` | `durable-session-proxy/src/routes/auth.ts` | 146 |
-| `apps/streams/src/routes/fork.ts` | `durable-session-proxy/src/routes/fork.ts` | 50 |
+| `apps/streams/src/server.ts` | `durable-session-proxy/src/server.ts` | ✅ |
+| `apps/streams/src/protocol.ts` | `durable-session-proxy/src/protocol.ts` | ✅ (fixed: JSON.stringify for append) |
+| `apps/streams/src/types.ts` | `durable-session-proxy/src/types.ts` | ✅ |
+| `apps/streams/src/handlers/index.ts` | `durable-session-proxy/src/handlers/index.ts` | ✅ |
+| `apps/streams/src/handlers/send-message.ts` | `durable-session-proxy/src/handlers/send-message.ts` | ✅ |
+| `apps/streams/src/handlers/invoke-agent.ts` | `durable-session-proxy/src/handlers/invoke-agent.ts` | ✅ |
+| `apps/streams/src/handlers/stream-writer.ts` | `durable-session-proxy/src/handlers/stream-writer.ts` | ✅ |
+| `apps/streams/src/routes/index.ts` | `durable-session-proxy/src/routes/index.ts` | ✅ |
+| `apps/streams/src/routes/sessions.ts` | `durable-session-proxy/src/routes/sessions.ts` | ✅ |
+| `apps/streams/src/routes/messages.ts` | `durable-session-proxy/src/routes/messages.ts` | ✅ |
+| `apps/streams/src/routes/agents.ts` | `durable-session-proxy/src/routes/agents.ts` | ✅ |
+| `apps/streams/src/routes/stream.ts` | `durable-session-proxy/src/routes/stream.ts` | ✅ |
+| `apps/streams/src/routes/tool-results.ts` | `durable-session-proxy/src/routes/tool-results.ts` | ✅ |
+| `apps/streams/src/routes/approvals.ts` | `durable-session-proxy/src/routes/approvals.ts` | ✅ |
+| `apps/streams/src/routes/health.ts` | `durable-session-proxy/src/routes/health.ts` | ✅ |
+| `apps/streams/src/routes/auth.ts` | `durable-session-proxy/src/routes/auth.ts` | ✅ |
+| `apps/streams/src/routes/fork.ts` | `durable-session-proxy/src/routes/fork.ts` | ✅ |
 
-### Files to DELETE
+### Files DELETED ✅
 
-| File | Reason |
-|---|---|
-| `apps/streams/src/session-registry.ts` | Replaced by proxy's built-in session management |
-| `packages/ai-chat/src/stream/client.ts` | Replaced by vendored DurableChatClient |
-| `packages/ai-chat/src/stream/schema.ts` | Replaced by vendored sessionStateSchema |
-| `packages/ai-chat/src/stream/materialize.ts` | Replaced by vendored materializeMessage |
-| `packages/ai-chat/src/stream/materialize.test.ts` | Tests for deleted file |
-| `packages/ai-chat/src/stream/useChatSession.ts` | Replaced by vendored useDurableChat |
-| `packages/ai-chat/src/stream/useCollectionData.ts` | Replaced (built into vendored hook) |
-| `packages/ai-chat/src/stream/actions.ts` | Replaced by vendored optimistic actions |
+| File | Reason | Status |
+|---|---|---|
+| `packages/ai-chat/` (entire package) | Replaced by `@superset/durable-session` | ✅ Removed |
 
-### Files to REWRITE
+### Files DELETED (Phase A2) ✅
 
-| File | Description |
-|---|---|
-| `apps/streams/src/index.ts` | New entrypoint with Hono proxy + DurableStreamTestServer |
-| `packages/ai-chat/src/stream/index.ts` | Re-export from `@superset/durable-session` |
-| `apps/desktop/.../session-manager.ts` | Thin HTTP orchestrator (no StreamWatcher/Producer) |
+| File | Reason | Status |
+|---|---|---|
+| `apps/streams/src/session-registry.ts` | Replaced by proxy's built-in session management | ✅ Removed |
 
-### Files to MODIFY
+### Files REWRITTEN (Phase A2) ✅
 
-| File | Changes |
-|---|---|
-| `packages/ai-chat/package.json` | Remove: @durable-streams/*, @anthropic-ai/*. Add: @superset/durable-session |
-| `apps/streams/package.json` | Add: hono, @hono/node-server, @durable-streams/client, @superset/durable-session |
-| `packages/ai-chat/src/types.ts` | Remove StreamEvent, StreamEntry, Draft types |
-| `packages/ai-chat/src/index.ts` | Update exports to match new stream/index.ts |
+| File | Description | Status |
+|---|---|---|
+| `apps/streams/src/index.ts` | New entrypoint with Hono proxy + DurableStreamTestServer | ✅ |
+
+### Files REWRITTEN (Phase C2) ✅
+
+| File | Description | Status |
+|---|---|---|
+| `apps/desktop/.../session-manager.ts` | Thin HTTP orchestrator (no StreamWatcher/Producer) | ✅ |
+
+### Files MODIFIED (Phase A2) ✅
+
+| File | Changes | Status |
+|---|---|---|
+| `apps/streams/package.json` | Added: hono, @hono/node-server, @durable-streams/client, @superset/durable-session, @tanstack/db, zod | ✅ |
+| `packages/durable-session/src/client.ts` | Fixed: `response.json()` return type assertion for `ForkResult` | ✅ |
+
+### Files MODIFIED (Phase B) ✅
+
+| File | Changes | Status |
+|---|---|---|
+| `apps/streams/package.json` | Added: @anthropic-ai/claude-agent-sdk, @tanstack/ai | ✅ |
+| `apps/streams/src/index.ts` | Added: Claude agent endpoint on STREAMS_AGENT_PORT | ✅ |
 
 ---
 
 ## Implementation Order
 
-1. **Phase A1** — Vendor `@superset/durable-session` package (copy 18 files, adjust 3 import paths)
-2. **Phase A2** — Vendor proxy into `apps/streams` (copy 17 files, adjust 3 import paths)
-3. **Phase B** — Claude agent endpoint + SDK-to-AI chunk converter (2 new files)
-4. **Phase C** — Update `packages/ai-chat` + simplify session manager (delete 7 files, rewrite 3)
-5. **Phase D** — Database schema + migration
-6. **Phase E** — API tRPC router
-7. **Phase F** — Desktop chat UI
+1. ~~**Phase A1** — Vendor `@superset/durable-session` package~~ ✅ DONE
+2. ~~**Phase C1** — Remove old `packages/ai-chat`, migrate UI components~~ ✅ DONE
+3. ~~**Phase A2** — Vendor proxy into `apps/streams` (copy 17 files, adjust 3 import paths)~~ ✅ DONE
+4. ~~**Phase B** — Claude agent endpoint + SDK-to-AI chunk converter (2 new files)~~ ✅ DONE
+5. ~~**Phase C2** — Simplify desktop session manager~~ ✅ DONE
+6. ~~**Phase F** — Desktop chat UI (works with existing proxy, no DB needed)~~ ✅ DONE
+7. **Phase C3** — Handle drafts (local state + typing indicators)
 8. **Phase G** — Web chat UI
+9. **Phase D** — Database schema + migration (persistent storage)
+10. **Phase E** — API tRPC router (web session management)
 
 ---
 
 ## Risks
 
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| `@tanstack/ai` API mismatch with vendored code | Build breaks | Vendored code uses `workspace:*` — pin to compatible published versions, fix API differences |
-| SDKMessage → AI chunk conversion errors | Broken rendering | Comprehensive unit tests with real Claude output fixtures |
-| Claude binary path outside Electron | Agent can't start | `CLAUDE_BINARY_PATH` env var set by desktop at streams startup |
-| Multi-turn resume state lost on restart | Context lost | In-memory map + optional file-based persistence in data dir |
-| Interrupt via HTTP abort | Claude subprocess continues | Agent detects fetch abort → calls `query.interrupt()` + `abortController.abort()` |
-| Proxy `workspace:*` TanStack DB deps | Import errors | Pin all `@tanstack/*` to compatible published versions across monorepo |
+| Risk | Impact | Mitigation | Status |
+|------|--------|------------|--------|
+| `@tanstack/ai` API mismatch with vendored code | Build breaks | Vendored code uses `workspace:*` — pin to compatible published versions, fix API differences | ✅ Resolved — `DoneStreamChunk` → `RUN_FINISHED`, `LiveMode` removed |
+| `@tanstack/db` unreleased aggregates | Build breaks | Rewrite collection pipelines with `groupBy + count + fn.select` workaround | ✅ Resolved — `collect`/`minStr` replaced |
+| SDKMessage → AI chunk conversion errors | Broken rendering | Comprehensive unit tests with real Claude output fixtures | Pending (Phase B) |
+| Dual `StreamChunk` types | Type confusion, silent mismatches at module boundaries | `sdk-to-ai-chunks.ts` imports strict `StreamChunk` from `@tanstack/ai` (union of 14 AG-UI events). `types.ts` defines a loose `{ type: string; [key: string]: unknown }` used by `protocol.ts` and `stream-writer.ts`. Works at runtime because JSON serialization is the boundary, but `protocol.ts` gets zero type safety when constructing/consuming chunks. **Fix:** delete local `StreamChunk` from `types.ts`, use `@tanstack/ai`'s everywhere, replace `as StreamChunk` casts in `protocol.ts` with typed construction (~10 call sites). | Deferred — cleanup PR |
+| Claude binary path outside Electron | Agent can't start | Claude agent SDK resolves binary automatically | ✅ Resolved — CLAUDE_BINARY_PATH removed |
+| Multi-turn resume state lost on restart | Context lost | In-memory map + optional file-based persistence in data dir | Pending |
+| Interrupt via HTTP abort | Claude subprocess continues | Agent detects fetch abort → calls `query.interrupt()` + `abortController.abort()` | Pending |
+| Proxy `workspace:*` TanStack DB deps | Import errors | Pin all `@tanstack/*` to compatible published versions across monorepo | ✅ Resolved — imports changed to `@superset/durable-session`, `DurableStream.append()` wrapped with `JSON.stringify()` |
 
 ---
 
@@ -1138,14 +1143,14 @@ it('converts result to done chunk', () => {
 
 ## Verification
 
-### Phase A Verification (Vendored Package)
+### Phase A1 Verification (Vendored Package) ✅ PASSED
 ```bash
 # 1. Install deps
 cd packages/durable-session && bun install
-# 2. Type check vendored package
-bun run typecheck
-# 3. Verify exports resolve
-node -e "require('@superset/durable-session')" # or bun
+# 2. Type check vendored package — 0 errors, 0 warnings
+bunx tsc --noEmit
+# 3. Lint — 0 errors, 0 warnings
+bun run lint:fix
 ```
 
 ### Phase A2 + B Verification (Proxy + Agent)
