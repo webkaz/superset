@@ -225,7 +225,7 @@ export function useTasksTable({
 					return (
 						<Checkbox
 							checked={row.getIsSelected()}
-							onCheckedChange={row.getToggleSelectedHandler()}
+							onCheckedChange={(checked) => row.toggleSelected(Boolean(checked))}
 							onClick={(e) => e.stopPropagation()}
 							aria-label="Select task"
 							className="cursor-pointer"
