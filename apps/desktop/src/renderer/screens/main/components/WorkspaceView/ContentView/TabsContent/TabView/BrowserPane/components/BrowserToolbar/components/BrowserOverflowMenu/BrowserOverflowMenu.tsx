@@ -5,7 +5,14 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@superset/ui/dropdown-menu";
-import { TbCamera, TbCopy, TbDots, TbReload, TbTrash } from "react-icons/tb";
+import {
+	TbCamera,
+	TbClock,
+	TbCopy,
+	TbDots,
+	TbReload,
+	TbTrash,
+} from "react-icons/tb";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 
 interface BrowserOverflowMenuProps {
@@ -22,6 +29,7 @@ export function BrowserOverflowMenu({
 	const reloadMutation = electronTrpc.browser.reload.useMutation();
 	const clearBrowsingDataMutation =
 		electronTrpc.browser.clearBrowsingData.useMutation();
+	const clearHistoryMutation = electronTrpc.browserHistory.clear.useMutation();
 
 	const handleScreenshot = () => {
 		screenshotMutation.mutate({ paneId });
@@ -42,6 +50,10 @@ export function BrowserOverflowMenu({
 
 	const handleClearCookies = () => {
 		clearBrowsingDataMutation.mutate({ type: "cookies" });
+	};
+
+	const handleClearHistory = () => {
+		clearHistoryMutation.mutate();
 	};
 
 	const handleClearAllData = () => {
@@ -84,6 +96,10 @@ export function BrowserOverflowMenu({
 					Copy URL
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
+				<DropdownMenuItem onClick={handleClearHistory} className="gap-2">
+					<TbClock className="size-4" />
+					Clear Browsing History
+				</DropdownMenuItem>
 				<DropdownMenuItem onClick={handleClearCookies} className="gap-2">
 					<TbTrash className="size-4" />
 					Clear Cookies

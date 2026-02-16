@@ -1171,7 +1171,12 @@ export const useTabsStore = create<TabsStore>()(
 					return { tabId: tab.id, paneId: pane.id };
 				},
 
-				updateBrowserUrl: (paneId: string, url: string, title: string) => {
+				updateBrowserUrl: (
+					paneId: string,
+					url: string,
+					title: string,
+					faviconUrl?: string,
+				) => {
 					const state = get();
 					const pane = state.panes[paneId];
 					if (!pane?.browser) return;
@@ -1179,11 +1184,19 @@ export const useTabsStore = create<TabsStore>()(
 					const { history: prevHistory, historyIndex } = pane.browser;
 					const currentEntry = prevHistory[historyIndex];
 
-					// If the URL matches the current entry, just update the title
+					// If the URL matches the current entry, just update the title/favicon
 					if (currentEntry && currentEntry.url === url) {
-						if (currentEntry.title === title) return;
+						const titleChanged = currentEntry.title !== title;
+						const faviconChanged =
+							faviconUrl !== undefined &&
+							currentEntry.faviconUrl !== faviconUrl;
+						if (!titleChanged && !faviconChanged) return;
 						const history = [...prevHistory];
-						history[historyIndex] = { ...currentEntry, title };
+						history[historyIndex] = {
+							...currentEntry,
+							title,
+							...(faviconUrl !== undefined ? { faviconUrl } : {}),
+						};
 						set({
 							panes: {
 								...state.panes,
@@ -1199,7 +1212,12 @@ export const useTabsStore = create<TabsStore>()(
 
 					// Truncate forward entries when navigating from a non-end position
 					const history = prevHistory.slice(0, historyIndex + 1);
-					history.push({ url, title, timestamp: Date.now() });
+					history.push({
+						url,
+						title,
+						timestamp: Date.now(),
+						...(faviconUrl ? { faviconUrl } : {}),
+					});
 					if (history.length > 100) {
 						history.splice(0, history.length - 100);
 					}

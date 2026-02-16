@@ -13,11 +13,14 @@ export function useBrowserNavigation({
 }: UseBrowserNavigationOptions) {
 	const webviewRef = useRef<Electron.WebviewTag | null>(null);
 	const isHistoryNavigation = useRef(false);
+	const faviconUrlRef = useRef<string | undefined>(undefined);
 	const updateBrowserUrl = useTabsStore((s) => s.updateBrowserUrl);
 	const updateBrowserLoading = useTabsStore((s) => s.updateBrowserLoading);
 	const navigateBrowserHistory = useTabsStore((s) => s.navigateBrowserHistory);
 	const registerMutation = electronTrpc.browser.register.useMutation();
 	const unregisterMutation = electronTrpc.browser.unregister.useMutation();
+	const upsertHistoryMutation =
+		electronTrpc.browserHistory.upsert.useMutation();
 
 	const browserState = useTabsStore((s) => s.panes[paneId]?.browser);
 	const historyIndex = browserState?.historyIndex ?? 0;
@@ -58,7 +61,12 @@ export function useBrowserNavigation({
 				return;
 			}
 
-			updateBrowserUrl(paneId, webview.getURL(), webview.getTitle());
+			updateBrowserUrl(
+				paneId,
+				webview.getURL(),
+				webview.getTitle(),
+				faviconUrlRef.current,
+			);
 			updateBrowserLoading(paneId, false);
 		},
 		[paneId, updateBrowserUrl, updateBrowserLoading],
@@ -74,13 +82,20 @@ export function useBrowserNavigation({
 				return;
 			}
 
-			updateBrowserUrl(paneId, webview.getURL(), webview.getTitle());
+			updateBrowserUrl(
+				paneId,
+				webview.getURL(),
+				webview.getTitle(),
+				faviconUrlRef.current,
+			);
 		},
 		[paneId, updateBrowserUrl],
 	);
 
 	const handleDidStartLoading = useCallback(() => {
 		updateBrowserLoading(paneId, true);
+		// Reset favicon for new navigation
+		faviconUrlRef.current = undefined;
 	}, [paneId, updateBrowserLoading]);
 
 	const handleDidStopLoading = useCallback(() => {
@@ -91,17 +106,59 @@ export function useBrowserNavigation({
 				isHistoryNavigation.current = false;
 				return;
 			}
-			updateBrowserUrl(paneId, webview.getURL(), webview.getTitle());
+			const url = webview.getURL();
+			const title = webview.getTitle();
+			updateBrowserUrl(paneId, url, title, faviconUrlRef.current);
+
+			// Record visit in persistent history (skip blank pages)
+			if (url && url !== "about:blank") {
+				upsertHistoryMutation.mutate({
+					url,
+					title,
+					faviconUrl: faviconUrlRef.current ?? null,
+				});
+			}
 		}
-	}, [paneId, updateBrowserUrl, updateBrowserLoading]);
+	}, [paneId, updateBrowserUrl, updateBrowserLoading, upsertHistoryMutation]);
 
 	const handlePageTitleUpdated = useCallback(
 		(event: Electron.PageTitleUpdatedEvent) => {
 			const webview = webviewRef.current;
 			if (!webview) return;
-			updateBrowserUrl(paneId, webview.getURL(), event.title);
+			updateBrowserUrl(
+				paneId,
+				webview.getURL(),
+				event.title,
+				faviconUrlRef.current,
+			);
 		},
 		[paneId, updateBrowserUrl],
+	);
+
+	const handlePageFaviconUpdated = useCallback(
+		(event: Electron.PageFaviconUpdatedEvent) => {
+			const favicons = event.favicons;
+			if (favicons && favicons.length > 0) {
+				faviconUrlRef.current = favicons[0];
+				const webview = webviewRef.current;
+				if (webview) {
+					const url = webview.getURL();
+					const title = webview.getTitle();
+					// Update the in-memory pane entry with the new favicon
+					updateBrowserUrl(paneId, url, title, favicons[0]);
+					// Also upsert to persistent history — favicon often arrives
+					// after did-stop-loading, so the initial upsert may have null
+					if (url && url !== "about:blank") {
+						upsertHistoryMutation.mutate({
+							url,
+							title,
+							faviconUrl: favicons[0],
+						});
+					}
+				}
+			}
+		},
+		[paneId, updateBrowserUrl, upsertHistoryMutation],
 	);
 
 	const setupListeners = useCallback(
@@ -121,6 +178,10 @@ export function useBrowserNavigation({
 				"page-title-updated",
 				handlePageTitleUpdated as EventListener,
 			);
+			webview.addEventListener(
+				"page-favicon-updated",
+				handlePageFaviconUpdated as EventListener,
+			);
 		},
 		[
 			handleDomReady,
@@ -129,6 +190,7 @@ export function useBrowserNavigation({
 			handleDidStartLoading,
 			handleDidStopLoading,
 			handlePageTitleUpdated,
+			handlePageFaviconUpdated,
 		],
 	);
 
@@ -149,6 +211,10 @@ export function useBrowserNavigation({
 				"page-title-updated",
 				handlePageTitleUpdated as EventListener,
 			);
+			webview.removeEventListener(
+				"page-favicon-updated",
+				handlePageFaviconUpdated as EventListener,
+			);
 		},
 		[
 			handleDomReady,
@@ -157,6 +223,7 @@ export function useBrowserNavigation({
 			handleDidStartLoading,
 			handleDidStopLoading,
 			handlePageTitleUpdated,
+			handlePageFaviconUpdated,
 		],
 	);
 

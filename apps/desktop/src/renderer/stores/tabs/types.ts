@@ -143,7 +143,12 @@ export interface TabsStore extends TabsState {
 		workspaceId: string,
 		url?: string,
 	) => { tabId: string; paneId: string };
-	updateBrowserUrl: (paneId: string, url: string, title: string) => void;
+	updateBrowserUrl: (
+		paneId: string,
+		url: string,
+		title: string,
+		faviconUrl?: string,
+	) => void;
 	navigateBrowserHistory: (
 		paneId: string,
 		direction: "back" | "forward",

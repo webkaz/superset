@@ -157,6 +157,7 @@ export interface BrowserHistoryEntry {
 	url: string;
 	title: string;
 	timestamp: number;
+	faviconUrl?: string;
 }
 
 /**

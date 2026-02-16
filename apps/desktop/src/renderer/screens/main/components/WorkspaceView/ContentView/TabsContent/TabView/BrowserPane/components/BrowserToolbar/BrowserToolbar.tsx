@@ -6,9 +6,13 @@ import {
 	TbLoader2,
 	TbRefresh,
 } from "react-icons/tb";
+import { UrlSuggestions } from "./components/UrlSuggestions";
+import { useUrlAutocomplete } from "./hooks/useUrlAutocomplete";
 
 function displayUrl(url: string): string {
-	return url === "about:blank" ? "" : url;
+	if (url === "about:blank") return "";
+	// Strip trailing slash for cleaner display (e.g. "https://github.com/" → "https://github.com")
+	return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
 interface BrowserToolbarProps {
@@ -41,6 +45,13 @@ export function BrowserToolbar({
 	const url = displayUrl(currentUrl);
 	const isBlank = !url;
 
+	const autocomplete = useUrlAutocomplete({
+		onSelect: (selectedUrl) => {
+			onNavigate(selectedUrl);
+			setIsEditing(false);
+		},
+	});
+
 	// Focus and select input when entering edit mode
 	useEffect(() => {
 		if (isEditing) {
@@ -52,11 +63,14 @@ export function BrowserToolbar({
 	const enterEditMode = useCallback(() => {
 		setUrlInputValue(url);
 		setIsEditing(true);
-	}, [url]);
+		autocomplete.open();
+		autocomplete.updateQuery(url);
+	}, [url, autocomplete]);
 
 	const exitEditMode = useCallback(() => {
 		setIsEditing(false);
-	}, []);
+		autocomplete.close();
+	}, [autocomplete]);
 
 	const handleSubmit = useCallback(
 		(e: React.FormEvent) => {
@@ -65,16 +79,37 @@ export function BrowserToolbar({
 			if (trimmed) {
 				onNavigate(trimmed);
 				setIsEditing(false);
+				autocomplete.close();
 			}
 		},
-		[urlInputValue, onNavigate],
+		[urlInputValue, onNavigate, autocomplete],
 	);
 
-	const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-		if (e.key === "Escape") {
-			setIsEditing(false);
-		}
-	}, []);
+	const handleInputChange = useCallback(
+		(e: React.ChangeEvent<HTMLInputElement>) => {
+			const value = e.target.value;
+			setUrlInputValue(value);
+			autocomplete.updateQuery(value);
+			if (!autocomplete.isOpen) {
+				autocomplete.open();
+			}
+		},
+		[autocomplete],
+	);
+
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent) => {
+			// Let autocomplete handle arrow keys, enter on highlighted, and first escape
+			const handled = autocomplete.handleKeyDown(e);
+			if (handled) return;
+
+			// Second escape (dropdown already closed) → exit edit mode
+			if (e.key === "Escape") {
+				setIsEditing(false);
+			}
+		},
+		[autocomplete],
+	);
 
 	return (
 		<div className="flex h-full flex-1 min-w-0 items-center px-2">
@@ -129,19 +164,23 @@ export function BrowserToolbar({
 				</Tooltip>
 			</div>
 			<div className="mx-1.5 h-3.5 w-px bg-muted-foreground/60" />
-			<div className="flex flex-1 min-w-0 items-center">
+			<div className="relative flex flex-1 min-w-0 items-center">
 				{isEditing ? (
-					<form onSubmit={handleSubmit} className="flex w-full min-w-0 items-center">
+					<form
+						onSubmit={handleSubmit}
+						className="flex w-full min-w-0 items-center"
+					>
 						<input
 							ref={inputRef}
 							type="text"
 							value={urlInputValue}
-							onChange={(e) => setUrlInputValue(e.target.value)}
+							onChange={handleInputChange}
 							onBlur={exitEditMode}
 							onKeyDown={handleKeyDown}
 							placeholder="Enter URL or search..."
 							className="h-[22px] w-full rounded-sm border border-ring bg-transparent px-2 text-xs text-foreground outline-none placeholder:text-muted-foreground/40"
 							spellCheck={false}
+							autoComplete="off"
 						/>
 					</form>
 				) : (
@@ -167,6 +206,13 @@ export function BrowserToolbar({
 							</>
 						)}
 					</button>
+				)}
+				{isEditing && autocomplete.isOpen && (
+					<UrlSuggestions
+						suggestions={autocomplete.suggestions}
+						highlightedIndex={autocomplete.highlightedIndex}
+						onSelect={autocomplete.selectSuggestion}
+					/>
 				)}
 			</div>
 		</div>

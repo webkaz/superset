@@ -52,6 +52,7 @@ const paneSchema = z.object({
 					url: z.string(),
 					title: z.string(),
 					timestamp: z.number(),
+					faviconUrl: z.string().optional(),
 				}),
 			),
 			historyIndex: z.number(),

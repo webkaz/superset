@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { type WebContents, app, clipboard, webContents } from "electron";
+import { app, clipboard, type WebContents, webContents } from "electron";
 
 interface ConsoleEntry {
 	level: "log" | "warn" | "error" | "info" | "debug";
@@ -91,8 +91,7 @@ class BrowserManager extends EventEmitter {
 			// Webview guests have type "webview", not "page"
 			const target = targets.find(
 				(t) =>
-					(t.type === "webview" || t.type === "page") &&
-					t.url === targetUrl,
+					(t.type === "webview" || t.type === "page") && t.url === targetUrl,
 			);
 			if (!target) return null;
 
@@ -102,10 +101,7 @@ class BrowserManager extends EventEmitter {
 		}
 	}
 
-	private setupWindowOpenHandler(
-		paneId: string,
-		webContentsId: number,
-	): void {
+	private setupWindowOpenHandler(paneId: string, webContentsId: number): void {
 		const wc = webContents.fromId(webContentsId);
 		if (!wc) return;
 
