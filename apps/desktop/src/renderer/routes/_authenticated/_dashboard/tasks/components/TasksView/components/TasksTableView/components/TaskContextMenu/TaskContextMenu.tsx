@@ -156,8 +156,8 @@ export function TaskContextMenu({
 				<ContextMenuSeparator />
 
 				<ContextMenuItem onClick={() => openStartWorkingModal(task)}>
-					<LuPlay className="mr-2 size-4" />
-					<span>Start Working</span>
+					<LuPlay />
+					Run with Claude
 				</ContextMenuItem>
 
 				<ContextMenuSeparator />

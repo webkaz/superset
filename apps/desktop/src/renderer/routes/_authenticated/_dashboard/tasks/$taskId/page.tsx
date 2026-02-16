@@ -31,7 +31,7 @@ function TaskDetailPage() {
 	const collections = useCollections();
 	const openStartWorkingModal = useOpenStartWorkingModal();
 
-	const backSearch = tab ? { tab } : {};
+	const backSearch = useMemo(() => (tab ? { tab } : {}), [tab]);
 	useEscapeToNavigate("/tasks", { search: backSearch });
 
 	// Support both UUID and slug lookups
@@ -109,17 +109,15 @@ function TaskDetailPage() {
 							<LuExternalLink className="w-4 h-4" />
 						</a>
 					)}
-					<div className="ml-auto">
-						<Button
-							variant="default"
-							size="sm"
-							className="h-7 text-xs gap-1.5"
-							onClick={() => openStartWorkingModal(task)}
-						>
-							<LuPlay className="size-3" />
-							Start Working
-						</Button>
-					</div>
+					<Button
+						variant="default"
+						size="xs"
+						className="ml-auto"
+						onClick={() => openStartWorkingModal(task)}
+					>
+						<LuPlay />
+						Run with Claude
+					</Button>
 				</div>
 
 				<ScrollArea className="flex-1 min-h-0">

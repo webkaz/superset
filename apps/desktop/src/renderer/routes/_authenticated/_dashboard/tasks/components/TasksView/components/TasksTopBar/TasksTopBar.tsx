@@ -74,25 +74,19 @@ export function TasksTopBar({
 					<>
 						<Button
 							variant="ghost"
-							size="icon"
-							className="h-7 w-7"
+							size="icon-xs"
 							onClick={onClearSelection}
 							aria-label="Clear selection"
 						>
-							<HiXMark className="size-4" />
+							<HiXMark />
 						</Button>
 						<span className="text-sm font-medium">
 							{selectedCount} selected
 						</span>
 						<div className="h-4 w-px bg-border" />
-						<Button
-							variant="default"
-							size="sm"
-							className="h-7 text-xs gap-1.5"
-							onClick={onStartWorking}
-						>
-							<LuPlay className="size-3" />
-							Start Working
+						<Button variant="default" size="xs" onClick={onStartWorking}>
+							<LuPlay />
+							Run with Claude
 						</Button>
 					</>
 				) : (

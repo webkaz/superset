@@ -3,6 +3,7 @@ import { Button } from "@superset/ui/button";
 import {
 	Dialog,
 	DialogContent,
+	DialogDescription,
 	DialogHeader,
 	DialogTitle,
 } from "@superset/ui/dialog";
@@ -272,7 +273,12 @@ export function StartWorkingDialog() {
 				}}
 			>
 				<DialogHeader className="px-4 pt-4 pb-3 shrink-0">
-					<DialogTitle className="text-base">Start Working</DialogTitle>
+					<DialogTitle className="text-base">New Workspace</DialogTitle>
+					<DialogDescription className="text-xs text-muted-foreground">
+						{isBatch
+							? `Create ${tasks.length} new workspaces and run Claude on each task.`
+							: "Create a new workspace and run Claude on this task."}
+					</DialogDescription>
 				</DialogHeader>
 
 				<div className="overflow-y-auto min-h-0">
@@ -359,14 +365,15 @@ export function StartWorkingDialog() {
 							<DropdownMenuTrigger asChild>
 								<Button
 									variant="outline"
-									className="w-full h-8 text-sm justify-between font-normal"
+									size="xs"
+									className="w-full justify-between font-normal"
 								>
 									<span
 										className={selectedProject ? "" : "text-muted-foreground"}
 									>
 										{selectedProject?.name ?? "Select project"}
 									</span>
-									<HiChevronDown className="size-4 text-muted-foreground" />
+									<HiChevronDown className="text-muted-foreground" />
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent
@@ -388,7 +395,7 @@ export function StartWorkingDialog() {
 									))}
 								<DropdownMenuSeparator />
 								<DropdownMenuItem onClick={handleImportRepo}>
-									<LuFolderOpen className="size-4" />
+									<LuFolderOpen />
 									Import repo
 								</DropdownMenuItem>
 							</DropdownMenuContent>
@@ -412,7 +419,8 @@ export function StartWorkingDialog() {
 				{/* Create button */}
 				<div className="px-4 pb-4 shrink-0">
 					<Button
-						className="w-full h-8 text-sm"
+						size="xs"
+						className="w-full"
 						onClick={handleCreateWorkspace}
 						disabled={!selectedProjectId || isPending}
 					>
