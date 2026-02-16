@@ -1,6 +1,6 @@
 import type { MosaicBranch } from "react-mosaic-component";
 import { electronTrpc } from "renderer/lib/electron-trpc";
-import { BasePaneWindow, PaneToolbarActions } from "../../../components";
+import { BasePaneWindow, PaneToolbarActions } from "../components";
 
 interface DevToolsPaneProps {
 	paneId: string;
