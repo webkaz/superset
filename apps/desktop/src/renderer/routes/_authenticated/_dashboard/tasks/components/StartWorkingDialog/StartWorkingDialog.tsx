@@ -237,136 +237,153 @@ export function StartWorkingDialog() {
 	if (tasks.length === 0) return null;
 
 	return (
-		<Dialog modal open={isOpen} onOpenChange={(open) => !open && handleClose()}>
+		<Dialog
+			modal
+			open={isOpen}
+			onOpenChange={(open) => {
+				if (!open && !isPending) handleClose();
+			}}
+		>
 			<DialogContent
 				className="sm:max-w-[480px] max-h-[85vh] gap-0 p-0 flex flex-col overflow-hidden"
 				onKeyDown={handleKeyDown}
+				onEscapeKeyDown={(e) => {
+					if (isPending) e.preventDefault();
+				}}
+				onPointerDownOutside={(e) => {
+					if (isPending) e.preventDefault();
+				}}
 			>
 				<DialogHeader className="px-4 pt-4 pb-3 shrink-0">
 					<DialogTitle className="text-base">Start Working</DialogTitle>
 				</DialogHeader>
 
 				<div className="overflow-y-auto min-h-0">
-				{/* Task context preview */}
-				<div className="px-4 pb-3">
-					{isBatch ? (
-						<div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
-							<p className="text-sm font-medium">
-								{tasks.length} tasks selected
-							</p>
-							<ScrollArea className="max-h-[160px]">
-								<div className="space-y-1.5">
-									{tasks.map((task) => (
-										<div
-											key={task.id}
-											className="flex items-center gap-2 text-xs"
-										>
-											<span className="text-muted-foreground font-mono shrink-0">
-												{task.slug}
-											</span>
-											<span className="truncate">{task.title}</span>
-										</div>
-									))}
-								</div>
-							</ScrollArea>
-						</div>
-					) : singleTask ? (
-						<div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
-							<div className="flex items-center gap-2">
-								<span className="text-xs text-muted-foreground font-mono">
-									{singleTask.slug}
-								</span>
-								{singleTask.status && (
-									<Badge variant="outline" className="text-[10px] px-1.5 py-0">
-										{singleTask.status.name}
-									</Badge>
-								)}
-								{singleTask.priority && singleTask.priority !== "none" && (
-									<Badge variant="outline" className="text-[10px] px-1.5 py-0">
-										{singleTask.priority}
-									</Badge>
-								)}
-							</div>
-							<p className="text-sm font-medium leading-snug">
-								{singleTask.title}
-							</p>
-							{singleTask.description && (
-								<p className="text-xs text-muted-foreground line-clamp-2">
-									{singleTask.description}
+					{/* Task context preview */}
+					<div className="px-4 pb-3">
+						{isBatch ? (
+							<div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+								<p className="text-sm font-medium">
+									{tasks.length} tasks selected
 								</p>
-							)}
-							{singleTask.labels && singleTask.labels.length > 0 && (
-								<div className="flex gap-1 flex-wrap">
-									{singleTask.labels.map((label) => (
+								<ScrollArea className="max-h-[160px]">
+									<div className="space-y-1.5">
+										{tasks.map((task) => (
+											<div
+												key={task.id}
+												className="flex items-center gap-2 text-xs"
+											>
+												<span className="text-muted-foreground font-mono shrink-0">
+													{task.slug}
+												</span>
+												<span className="truncate">{task.title}</span>
+											</div>
+										))}
+									</div>
+								</ScrollArea>
+							</div>
+						) : singleTask ? (
+							<div className="rounded-md border border-border bg-muted/30 p-3 space-y-2">
+								<div className="flex items-center gap-2">
+									<span className="text-xs text-muted-foreground font-mono">
+										{singleTask.slug}
+									</span>
+									{singleTask.status && (
 										<Badge
-											key={label}
-											variant="secondary"
+											variant="outline"
 											className="text-[10px] px-1.5 py-0"
 										>
-											{label}
+											{singleTask.status.name}
 										</Badge>
-									))}
+									)}
+									{singleTask.priority && singleTask.priority !== "none" && (
+										<Badge
+											variant="outline"
+											className="text-[10px] px-1.5 py-0"
+										>
+											{singleTask.priority}
+										</Badge>
+									)}
 								</div>
-							)}
-						</div>
-					) : null}
-				</div>
-
-				{/* Project selector */}
-				<div className="px-4 pb-3">
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								variant="outline"
-								className="w-full h-8 text-sm justify-between font-normal"
-							>
-								<span
-									className={selectedProject ? "" : "text-muted-foreground"}
-								>
-									{selectedProject?.name ?? "Select project"}
-								</span>
-								<HiChevronDown className="size-4 text-muted-foreground" />
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent
-							align="start"
-							className="w-[--radix-dropdown-menu-trigger-width]"
-						>
-							{recentProjects
-								.filter((project) => project.id)
-								.map((project) => (
-									<DropdownMenuItem
-										key={project.id}
-										onClick={() => setSelectedProjectId(project.id)}
-									>
-										{project.name}
-										{project.id === selectedProjectId && (
-											<HiCheck className="ml-auto size-4" />
-										)}
-									</DropdownMenuItem>
-								))}
-							<DropdownMenuSeparator />
-							<DropdownMenuItem onClick={handleImportRepo}>
-								<LuFolderOpen className="size-4" />
-								Import repo
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-				</div>
-
-				{/* Additional context (single mode only) */}
-				{selectedProjectId && !isBatch && (
-					<div className="px-4 pb-3">
-						<Textarea
-							ref={textareaRef}
-							placeholder="Additional context or instructions for Claude (optional)"
-							className="min-h-[80px] text-sm resize-none"
-							value={additionalContext}
-							onChange={(e) => setAdditionalContext(e.target.value)}
-						/>
+								<p className="text-sm font-medium leading-snug">
+									{singleTask.title}
+								</p>
+								{singleTask.description && (
+									<p className="text-xs text-muted-foreground line-clamp-2">
+										{singleTask.description}
+									</p>
+								)}
+								{singleTask.labels && singleTask.labels.length > 0 && (
+									<div className="flex gap-1 flex-wrap">
+										{singleTask.labels.map((label) => (
+											<Badge
+												key={label}
+												variant="secondary"
+												className="text-[10px] px-1.5 py-0"
+											>
+												{label}
+											</Badge>
+										))}
+									</div>
+								)}
+							</div>
+						) : null}
 					</div>
-				)}
 
+					{/* Project selector */}
+					<div className="px-4 pb-3">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="outline"
+									className="w-full h-8 text-sm justify-between font-normal"
+								>
+									<span
+										className={selectedProject ? "" : "text-muted-foreground"}
+									>
+										{selectedProject?.name ?? "Select project"}
+									</span>
+									<HiChevronDown className="size-4 text-muted-foreground" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="start"
+								className="w-[--radix-dropdown-menu-trigger-width]"
+							>
+								{recentProjects
+									.filter((project) => project.id)
+									.map((project) => (
+										<DropdownMenuItem
+											key={project.id}
+											onClick={() => setSelectedProjectId(project.id)}
+										>
+											{project.name}
+											{project.id === selectedProjectId && (
+												<HiCheck className="ml-auto size-4" />
+											)}
+										</DropdownMenuItem>
+									))}
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onClick={handleImportRepo}>
+									<LuFolderOpen className="size-4" />
+									Import repo
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+
+					{/* Additional context (single mode only) */}
+					{selectedProjectId && !isBatch && (
+						<div className="px-4 pb-3">
+							<Textarea
+								ref={textareaRef}
+								placeholder="Additional context or instructions for Claude (optional)"
+								className="min-h-[80px] text-sm resize-none"
+								value={additionalContext}
+								onChange={(e) => setAdditionalContext(e.target.value)}
+							/>
+						</div>
+					)}
 				</div>
 
 				{/* Create button */}

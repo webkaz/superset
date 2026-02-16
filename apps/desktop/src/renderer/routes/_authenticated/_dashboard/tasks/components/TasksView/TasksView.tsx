@@ -3,10 +3,13 @@ import { Spinner } from "@superset/ui/spinner";
 import { eq } from "@tanstack/db";
 import { useLiveQuery } from "@tanstack/react-db";
 import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { HiCheckCircle } from "react-icons/hi2";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider";
-import { useOpenStartWorkingModal } from "renderer/stores/start-working-modal";
+import {
+	useOpenStartWorkingModal,
+	useStartWorkingModalOpen,
+} from "renderer/stores/start-working-modal";
 import { LinearCTA } from "./components/LinearCTA";
 import { TasksTableView } from "./components/TasksTableView";
 import { type TabValue, TasksTopBar } from "./components/TasksTopBar";
@@ -16,6 +19,7 @@ export function TasksView() {
 	const navigate = useNavigate();
 	const collections = useCollections();
 	const openStartWorkingModal = useOpenStartWorkingModal();
+	const isModalOpen = useStartWorkingModalOpen();
 	const [currentTab, setCurrentTab] = useState<TabValue>("all");
 	const [searchQuery, setSearchQuery] = useState("");
 	const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
@@ -41,16 +45,20 @@ export function TasksView() {
 		});
 
 	const selectedTasks = useMemo(() => {
-		const selectedIds = Object.keys(rowSelection).filter(
-			(id) => rowSelection[id],
-		);
-		if (selectedIds.length === 0) return [];
+		if (!Object.values(rowSelection).some(Boolean)) return [];
 
 		return table
 			.getRowModel()
 			.rows.filter((row) => row.getIsSelected() && !row.getIsGrouped())
 			.map((row) => row.original);
 	}, [rowSelection, table]);
+
+	// Clear row selection when modal closes
+	useEffect(() => {
+		if (!isModalOpen) {
+			setRowSelection({});
+		}
+	}, [isModalOpen, setRowSelection]);
 
 	const handleTaskClick = (task: TaskWithStatus) => {
 		navigate({

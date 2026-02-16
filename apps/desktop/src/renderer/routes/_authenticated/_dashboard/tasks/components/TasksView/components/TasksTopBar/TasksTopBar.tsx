@@ -77,6 +77,7 @@ export function TasksTopBar({
 							size="icon"
 							className="h-7 w-7"
 							onClick={onClearSelection}
+							aria-label="Clear selection"
 						>
 							<HiXMark className="size-4" />
 						</Button>

@@ -307,7 +307,7 @@ export function useTasksTable({
 			rowSelection,
 		},
 		getRowId: (row) => row.id,
-		enableRowSelection: true,
+		enableRowSelection: (row) => !row.getIsGrouped(),
 		onRowSelectionChange: setRowSelection,
 		onGroupingChange: setGrouping,
 		onExpandedChange: setExpanded,
