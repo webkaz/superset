@@ -17,9 +17,11 @@ export function useBrowserNavigation({
 	const updateBrowserUrl = useTabsStore((s) => s.updateBrowserUrl);
 	const updateBrowserLoading = useTabsStore((s) => s.updateBrowserLoading);
 	const navigateBrowserHistory = useTabsStore((s) => s.navigateBrowserHistory);
-	const registerMutation = electronTrpc.browser.register.useMutation();
-	const unregisterMutation = electronTrpc.browser.unregister.useMutation();
-	const upsertHistoryMutation =
+	const { mutate: registerBrowser } =
+		electronTrpc.browser.register.useMutation();
+	const { mutate: unregisterBrowser } =
+		electronTrpc.browser.unregister.useMutation();
+	const { mutate: upsertHistory } =
 		electronTrpc.browserHistory.upsert.useMutation();
 
 	const browserState = useTabsStore((s) => s.panes[paneId]?.browser);
@@ -48,8 +50,8 @@ export function useBrowserNavigation({
 		if (!webview) return;
 
 		const webContentsId = webview.getWebContentsId();
-		registerMutation.mutate({ paneId, webContentsId });
-	}, [paneId, registerMutation]);
+		registerBrowser({ paneId, webContentsId });
+	}, [paneId, registerBrowser]);
 
 	const handleDidNavigate = useCallback(
 		(_event: Electron.DidNavigateEvent) => {
@@ -112,14 +114,14 @@ export function useBrowserNavigation({
 
 			// Record visit in persistent history (skip blank pages)
 			if (url && url !== "about:blank") {
-				upsertHistoryMutation.mutate({
+				upsertHistory({
 					url,
 					title,
 					faviconUrl: faviconUrlRef.current ?? null,
 				});
 			}
 		}
-	}, [paneId, updateBrowserUrl, updateBrowserLoading, upsertHistoryMutation]);
+	}, [paneId, updateBrowserUrl, updateBrowserLoading, upsertHistory]);
 
 	const handlePageTitleUpdated = useCallback(
 		(event: Electron.PageTitleUpdatedEvent) => {
@@ -149,7 +151,7 @@ export function useBrowserNavigation({
 					// Also upsert to persistent history — favicon often arrives
 					// after did-stop-loading, so the initial upsert may have null
 					if (url && url !== "about:blank") {
-						upsertHistoryMutation.mutate({
+						upsertHistory({
 							url,
 							title,
 							faviconUrl: favicons[0],
@@ -158,7 +160,7 @@ export function useBrowserNavigation({
 				}
 			}
 		},
-		[paneId, updateBrowserUrl, upsertHistoryMutation],
+		[paneId, updateBrowserUrl, upsertHistory],
 	);
 
 	const setupListeners = useCallback(
@@ -230,10 +232,9 @@ export function useBrowserNavigation({
 	// Cleanup on unmount
 	useEffect(() => {
 		return () => {
-			unregisterMutation.mutate({ paneId });
+			unregisterBrowser({ paneId });
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [paneId, unregisterMutation.mutate]);
+	}, [paneId, unregisterBrowser]);
 
 	const setWebviewRef = useCallback(
 		(webview: Electron.WebviewTag | null) => {
@@ -253,17 +254,17 @@ export function useBrowserNavigation({
 
 	const goBack = useCallback(() => {
 		const url = navigateBrowserHistory(paneId, "back");
-		if (url) {
+		if (url && webviewRef.current) {
 			isHistoryNavigation.current = true;
-			webviewRef.current?.loadURL(url);
+			webviewRef.current.loadURL(url);
 		}
 	}, [paneId, navigateBrowserHistory]);
 
 	const goForward = useCallback(() => {
 		const url = navigateBrowserHistory(paneId, "forward");
-		if (url) {
+		if (url && webviewRef.current) {
 			isHistoryNavigation.current = true;
-			webviewRef.current?.loadURL(url);
+			webviewRef.current.loadURL(url);
 		}
 	}, [paneId, navigateBrowserHistory]);
 
@@ -274,11 +275,11 @@ export function useBrowserNavigation({
 	const navigateTo = useCallback((url: string) => {
 		let finalUrl = url;
 		if (!/^https?:\/\//i.test(url) && !url.startsWith("about:")) {
-			// If it looks like a domain (has a dot), add https
-			if (url.includes(".")) {
+			if (url.startsWith("localhost") || url.startsWith("127.0.0.1")) {
+				finalUrl = `http://${url}`;
+			} else if (url.includes(".")) {
 				finalUrl = `https://${url}`;
 			} else {
-				// Otherwise treat as search
 				finalUrl = `https://www.google.com/search?q=${encodeURIComponent(url)}`;
 			}
 		}
