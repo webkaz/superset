@@ -187,8 +187,8 @@
     {
       "idx": 26,
       "version": "6",
-      "when": 1771211691266,
-      "tag": "0026_add_browser_history",
+      "when": 1771214717763,
+      "tag": "0026_browser_history",
       "breakpoints": true
     }
   ]
