@@ -238,7 +238,7 @@ export interface CreateBrowserPaneOptions {
 	url?: string;
 }
 
-const DEFAULT_BROWSER_URL = "https://www.google.com";
+const DEFAULT_BROWSER_URL = "about:blank";
 
 /**
  * Creates a new browser (webview) pane

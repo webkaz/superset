@@ -760,18 +760,14 @@ export const useTabsStore = create<TabsStore>()(
 					// Collect this pane + any devtools panes targeting it
 					const paneIdsToRemove = [paneId];
 					for (const [id, p] of Object.entries(state.panes)) {
-						if (
-							p.type === "devtools" &&
-							p.devtools?.targetPaneId === paneId
-						) {
+						if (p.type === "devtools" && p.devtools?.targetPaneId === paneId) {
 							paneIdsToRemove.push(id);
 						}
 					}
 
 					// If removing all these panes leaves the tab empty, remove the tab
 					const remainingPanes = Object.entries(state.panes).filter(
-						([id, p]) =>
-							p.tabId === tab.id && !paneIdsToRemove.includes(id),
+						([id, p]) => p.tabId === tab.id && !paneIdsToRemove.includes(id),
 					);
 					if (remainingPanes.length === 0) {
 						get().removeTab(tab.id);
@@ -791,10 +787,7 @@ export const useTabsStore = create<TabsStore>()(
 					// Remove all panes from layout
 					let newLayout = tab.layout;
 					for (const id of paneIdsToRemove) {
-						const result = removePaneFromLayout(
-							newLayout,
-							id,
-						);
+						const result = removePaneFromLayout(newLayout, id);
 						if (!result) {
 							get().removeTab(tab.id);
 							return;
@@ -1183,7 +1176,29 @@ export const useTabsStore = create<TabsStore>()(
 					const pane = state.panes[paneId];
 					if (!pane?.browser) return;
 
-					const history = [...pane.browser.history];
+					const { history: prevHistory, historyIndex } = pane.browser;
+					const currentEntry = prevHistory[historyIndex];
+
+					// If the URL matches the current entry, just update the title
+					if (currentEntry && currentEntry.url === url) {
+						if (currentEntry.title === title) return;
+						const history = [...prevHistory];
+						history[historyIndex] = { ...currentEntry, title };
+						set({
+							panes: {
+								...state.panes,
+								[paneId]: {
+									...pane,
+									name: title || "Browser",
+									browser: { ...pane.browser, history },
+								},
+							},
+						});
+						return;
+					}
+
+					// Truncate forward entries when navigating from a non-end position
+					const history = prevHistory.slice(0, historyIndex + 1);
 					history.push({ url, title, timestamp: Date.now() });
 					if (history.length > 100) {
 						history.splice(0, history.length - 100);
@@ -1204,6 +1219,39 @@ export const useTabsStore = create<TabsStore>()(
 							},
 						},
 					});
+				},
+
+				navigateBrowserHistory: (
+					paneId: string,
+					direction: "back" | "forward",
+				): string | null => {
+					const state = get();
+					const pane = state.panes[paneId];
+					if (!pane?.browser) return null;
+
+					const { history, historyIndex } = pane.browser;
+					const newIndex =
+						direction === "back" ? historyIndex - 1 : historyIndex + 1;
+
+					if (newIndex < 0 || newIndex >= history.length) return null;
+
+					const entry = history[newIndex];
+					set({
+						panes: {
+							...state.panes,
+							[paneId]: {
+								...pane,
+								name: entry.title || "Browser",
+								browser: {
+									...pane.browser,
+									currentUrl: entry.url,
+									historyIndex: newIndex,
+								},
+							},
+						},
+					});
+
+					return entry.url;
 				},
 
 				updateBrowserLoading: (paneId: string, isLoading: boolean) => {

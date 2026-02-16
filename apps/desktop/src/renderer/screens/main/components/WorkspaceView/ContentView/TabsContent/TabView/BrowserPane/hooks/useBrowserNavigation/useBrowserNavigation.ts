@@ -12,10 +12,33 @@ export function useBrowserNavigation({
 	initialUrl,
 }: UseBrowserNavigationOptions) {
 	const webviewRef = useRef<Electron.WebviewTag | null>(null);
+	const isHistoryNavigation = useRef(false);
 	const updateBrowserUrl = useTabsStore((s) => s.updateBrowserUrl);
 	const updateBrowserLoading = useTabsStore((s) => s.updateBrowserLoading);
+	const navigateBrowserHistory = useTabsStore((s) => s.navigateBrowserHistory);
 	const registerMutation = electronTrpc.browser.register.useMutation();
 	const unregisterMutation = electronTrpc.browser.unregister.useMutation();
+
+	const browserState = useTabsStore((s) => s.panes[paneId]?.browser);
+	const historyIndex = browserState?.historyIndex ?? 0;
+	const historyLength = browserState?.history.length ?? 0;
+	const canGoBack = historyIndex > 0;
+	const canGoForward = historyIndex < historyLength - 1;
+
+	// Subscribe to new-window events from the main process (target="_blank" links, window.open)
+	electronTrpc.browser.onNewWindow.useSubscription(
+		{ paneId },
+		{
+			onData: ({ url }) => {
+				const state = useTabsStore.getState();
+				const pane = state.panes[paneId];
+				if (!pane) return;
+				const tab = state.tabs.find((t) => t.id === pane.tabId);
+				if (!tab) return;
+				state.addBrowserTab(tab.workspaceId, url);
+			},
+		},
+	);
 
 	const handleDomReady = useCallback(() => {
 		const webview = webviewRef.current;
@@ -30,6 +53,11 @@ export function useBrowserNavigation({
 			const webview = webviewRef.current;
 			if (!webview) return;
 
+			if (isHistoryNavigation.current) {
+				isHistoryNavigation.current = false;
+				return;
+			}
+
 			updateBrowserUrl(paneId, webview.getURL(), webview.getTitle());
 			updateBrowserLoading(paneId, false);
 		},
@@ -40,6 +68,11 @@ export function useBrowserNavigation({
 		(_event: Electron.DidNavigateInPageEvent) => {
 			const webview = webviewRef.current;
 			if (!webview) return;
+
+			if (isHistoryNavigation.current) {
+				isHistoryNavigation.current = false;
+				return;
+			}
 
 			updateBrowserUrl(paneId, webview.getURL(), webview.getTitle());
 		},
@@ -54,6 +87,10 @@ export function useBrowserNavigation({
 		updateBrowserLoading(paneId, false);
 		const webview = webviewRef.current;
 		if (webview) {
+			if (isHistoryNavigation.current) {
+				isHistoryNavigation.current = false;
+				return;
+			}
 			updateBrowserUrl(paneId, webview.getURL(), webview.getTitle());
 		}
 	}, [paneId, updateBrowserUrl, updateBrowserLoading]);
@@ -148,12 +185,20 @@ export function useBrowserNavigation({
 	);
 
 	const goBack = useCallback(() => {
-		webviewRef.current?.goBack();
-	}, []);
+		const url = navigateBrowserHistory(paneId, "back");
+		if (url) {
+			isHistoryNavigation.current = true;
+			webviewRef.current?.loadURL(url);
+		}
+	}, [paneId, navigateBrowserHistory]);
 
 	const goForward = useCallback(() => {
-		webviewRef.current?.goForward();
-	}, []);
+		const url = navigateBrowserHistory(paneId, "forward");
+		if (url) {
+			isHistoryNavigation.current = true;
+			webviewRef.current?.loadURL(url);
+		}
+	}, [paneId, navigateBrowserHistory]);
 
 	const reload = useCallback(() => {
 		webviewRef.current?.reload();
@@ -180,6 +225,8 @@ export function useBrowserNavigation({
 		goForward,
 		reload,
 		navigateTo,
+		canGoBack,
+		canGoForward,
 		initialUrl,
 	};
 }

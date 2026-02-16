@@ -5,43 +5,26 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@superset/ui/dropdown-menu";
-import {
-	TbCamera,
-	TbCopy,
-	TbDeviceDesktop,
-	TbDots,
-	TbReload,
-	TbTrash,
-} from "react-icons/tb";
+import { TbCamera, TbCopy, TbDots, TbReload, TbTrash } from "react-icons/tb";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 
 interface BrowserOverflowMenuProps {
 	paneId: string;
-	onOpenDevTools?: () => void;
+	/** Whether a real page is loaded (not about:blank) */
+	hasPage: boolean;
 }
 
 export function BrowserOverflowMenu({
 	paneId,
-	onOpenDevTools,
+	hasPage,
 }: BrowserOverflowMenuProps) {
 	const screenshotMutation = electronTrpc.browser.screenshot.useMutation();
 	const reloadMutation = electronTrpc.browser.reload.useMutation();
-	const openDevToolsMutation = electronTrpc.browser.openDevTools.useMutation();
 	const clearBrowsingDataMutation =
 		electronTrpc.browser.clearBrowsingData.useMutation();
 
-	const handleScreenshot = async () => {
-		try {
-			const { base64 } = await screenshotMutation.mutateAsync({ paneId });
-			// Convert base64 to blob and copy to clipboard
-			const response = await fetch(`data:image/png;base64,${base64}`);
-			const blob = await response.blob();
-			await navigator.clipboard.write([
-				new ClipboardItem({ "image/png": blob }),
-			]);
-		} catch {
-			// Screenshot failed
-		}
+	const handleScreenshot = () => {
+		screenshotMutation.mutate({ paneId });
 	};
 
 	const handleHardReload = () => {
@@ -54,14 +37,6 @@ export function BrowserOverflowMenu({
 		) as Electron.WebviewTag | null;
 		if (webview) {
 			navigator.clipboard.writeText(webview.getURL());
-		}
-	};
-
-	const handleOpenDevTools = () => {
-		if (onOpenDevTools) {
-			onOpenDevTools();
-		} else {
-			openDevToolsMutation.mutate({ paneId });
 		}
 	};
 
@@ -84,22 +59,29 @@ export function BrowserOverflowMenu({
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-48">
-				<DropdownMenuItem onClick={handleScreenshot} className="gap-2">
+				<DropdownMenuItem
+					onClick={handleScreenshot}
+					disabled={!hasPage}
+					className="gap-2"
+				>
 					<TbCamera className="size-4" />
 					Take Screenshot
 				</DropdownMenuItem>
-				<DropdownMenuItem onClick={handleHardReload} className="gap-2">
+				<DropdownMenuItem
+					onClick={handleHardReload}
+					disabled={!hasPage}
+					className="gap-2"
+				>
 					<TbReload className="size-4" />
 					Hard Reload
 				</DropdownMenuItem>
-				<DropdownMenuItem onClick={handleCopyUrl} className="gap-2">
+				<DropdownMenuItem
+					onClick={handleCopyUrl}
+					disabled={!hasPage}
+					className="gap-2"
+				>
 					<TbCopy className="size-4" />
 					Copy URL
-				</DropdownMenuItem>
-				<DropdownMenuSeparator />
-				<DropdownMenuItem onClick={handleOpenDevTools} className="gap-2">
-					<TbDeviceDesktop className="size-4" />
-					Open DevTools
 				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuItem onClick={handleClearCookies} className="gap-2">

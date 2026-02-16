@@ -103,6 +103,20 @@ export const createBrowserRouter = () => {
 				});
 			}),
 
+		onNewWindow: publicProcedure
+			.input(z.object({ paneId: z.string() }))
+			.subscription(({ input }) => {
+				return observable<{ url: string }>((emit) => {
+					const handler = (url: string) => {
+						emit.next({ url });
+					};
+					browserManager.on(`new-window:${input.paneId}`, handler);
+					return () => {
+						browserManager.off(`new-window:${input.paneId}`, handler);
+					};
+				});
+			}),
+
 		openDevTools: publicProcedure
 			.input(z.object({ paneId: z.string() }))
 			.mutation(({ input }) => {

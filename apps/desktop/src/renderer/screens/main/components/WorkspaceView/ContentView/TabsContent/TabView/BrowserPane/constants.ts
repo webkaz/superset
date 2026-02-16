@@ -1,6 +1,6 @@
 import type { ViewportPreset } from "shared/tabs-types";
 
-export const DEFAULT_BROWSER_URL = "https://www.google.com";
+export const DEFAULT_BROWSER_URL = "about:blank";
 
 export const VIEWPORT_PRESETS: ViewportPreset[] = [
 	{ name: "Desktop", width: 1440, height: 900 },

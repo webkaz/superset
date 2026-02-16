@@ -144,6 +144,10 @@ export interface TabsStore extends TabsState {
 		url?: string,
 	) => { tabId: string; paneId: string };
 	updateBrowserUrl: (paneId: string, url: string, title: string) => void;
+	navigateBrowserHistory: (
+		paneId: string,
+		direction: "back" | "forward",
+	) => string | null;
 	updateBrowserLoading: (paneId: string, isLoading: boolean) => void;
 	setBrowserViewport: (paneId: string, viewport: ViewportPreset | null) => void;
 	openDevToolsPane: (

@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { type WebContents, app, webContents } from "electron";
+import { type WebContents, app, clipboard, webContents } from "electron";
 
 interface ConsoleEntry {
 	level: "log" | "warn" | "error" | "info" | "debug";
@@ -17,6 +17,7 @@ class BrowserManager extends EventEmitter {
 	register(paneId: string, webContentsId: number): void {
 		this.paneToWebContentsId.set(paneId, webContentsId);
 		this.setupConsoleCapture(paneId, webContentsId);
+		this.setupWindowOpenHandler(paneId, webContentsId);
 	}
 
 	unregister(paneId: string): void {
@@ -43,6 +44,7 @@ class BrowserManager extends EventEmitter {
 		const wc = this.getWebContents(paneId);
 		if (!wc) throw new Error(`No webContents for pane ${paneId}`);
 		const image = await wc.capturePage();
+		clipboard.writeImage(image);
 		return image.toPNG().toString("base64");
 	}
 
@@ -98,6 +100,21 @@ class BrowserManager extends EventEmitter {
 		} catch {
 			return null;
 		}
+	}
+
+	private setupWindowOpenHandler(
+		paneId: string,
+		webContentsId: number,
+	): void {
+		const wc = webContents.fromId(webContentsId);
+		if (!wc) return;
+
+		wc.setWindowOpenHandler(({ url }) => {
+			if (url && url !== "about:blank") {
+				this.emit(`new-window:${paneId}`, url);
+			}
+			return { action: "deny" };
+		});
 	}
 
 	private setupConsoleCapture(paneId: string, webContentsId: number): void {
