@@ -66,6 +66,11 @@ const paneSchema = z.object({
 				.optional(),
 		})
 		.optional(),
+	devtools: z
+		.object({
+			targetPaneId: z.string(),
+		})
+		.optional(),
 });
 
 /**

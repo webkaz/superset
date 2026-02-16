@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import type { MosaicBranch } from "react-mosaic-component";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import { BasePaneWindow, PaneToolbarActions } from "../components";
@@ -32,14 +32,19 @@ export function BrowserPane({
 	setFocusedPane,
 }: BrowserPaneProps) {
 	const pane = useTabsStore((s) => s.panes[paneId]);
+	const openDevToolsPane = useTabsStore((s) => s.openDevToolsPane);
 	const browserState = pane?.browser;
 	const currentUrl = browserState?.currentUrl ?? DEFAULT_BROWSER_URL;
 	const isLoading = browserState?.isLoading ?? false;
 
+	// Capture the initial URL on first render only — subsequent navigations
+	// are handled via webview.loadURL() to preserve browser history.
+	const initialUrlRef = useRef(currentUrl);
+
 	const { setWebviewRef, goBack, goForward, reload, navigateTo } =
 		useBrowserNavigation({
 			paneId,
-			initialUrl: currentUrl,
+			initialUrl: initialUrlRef.current,
 		});
 
 	const webviewRefCallback = useCallback(
@@ -48,6 +53,10 @@ export function BrowserPane({
 		},
 		[setWebviewRef],
 	);
+
+	const handleOpenDevTools = useCallback(() => {
+		openDevToolsPane(tabId, paneId, path);
+	}, [openDevToolsPane, tabId, paneId, path]);
 
 	return (
 		<BasePaneWindow
@@ -73,14 +82,19 @@ export function BrowserPane({
 						onSplitPane={handlers.onSplitPane}
 						onClosePane={handlers.onClosePane}
 						closeHotkeyId="CLOSE_TERMINAL"
-						leadingActions={<BrowserOverflowMenu paneId={paneId} />}
+						leadingActions={
+							<BrowserOverflowMenu
+								paneId={paneId}
+								onOpenDevTools={handleOpenDevTools}
+							/>
+						}
 					/>
 				</div>
 			)}
 		>
 			<webview
 				ref={webviewRefCallback}
-				src={currentUrl}
+				src={initialUrlRef.current}
 				partition="persist:superset"
 				data-pane-id={paneId}
 				className="w-full h-full"

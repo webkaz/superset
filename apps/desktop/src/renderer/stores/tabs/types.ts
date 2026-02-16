@@ -146,6 +146,11 @@ export interface TabsStore extends TabsState {
 	updateBrowserUrl: (paneId: string, url: string, title: string) => void;
 	updateBrowserLoading: (paneId: string, isLoading: boolean) => void;
 	setBrowserViewport: (paneId: string, viewport: ViewportPreset | null) => void;
+	openDevToolsPane: (
+		tabId: string,
+		browserPaneId: string,
+		path?: MosaicBranch[],
+	) => string | null;
 
 	// Chat operations
 	/** Switch a chat pane to a different session */

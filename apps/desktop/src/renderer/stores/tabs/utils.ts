@@ -3,6 +3,7 @@ import type { ChangeCategory } from "shared/changes-types";
 import { hasRenderedPreview, isImageFile } from "shared/file-types";
 import type {
 	BrowserPaneState,
+	DevToolsPaneState,
 	DiffLayout,
 	FileViewerMode,
 	FileViewerState,
@@ -262,6 +263,24 @@ export const createBrowserPane = (
 		type: "webview",
 		name: "Browser",
 		browser,
+	};
+};
+
+/**
+ * Creates a new DevTools pane targeting a browser pane
+ */
+export const createDevToolsPane = (
+	tabId: string,
+	targetPaneId: string,
+): Pane => {
+	const id = generateId("pane");
+	const devtools: DevToolsPaneState = { targetPaneId };
+	return {
+		id,
+		tabId,
+		type: "devtools",
+		name: "DevTools",
+		devtools,
 	};
 };
 

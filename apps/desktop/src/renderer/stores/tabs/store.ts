@@ -16,6 +16,7 @@ import {
 	type CreatePaneOptions,
 	createBrowserTabWithPane,
 	createChatTabWithPane,
+	createDevToolsPane,
 	createFileViewerPane,
 	createPane,
 	createTabWithPane,
@@ -1215,6 +1216,56 @@ export const useTabsStore = create<TabsStore>()(
 							},
 						},
 					});
+				},
+
+				openDevToolsPane: (tabId, browserPaneId, path) => {
+					const state = get();
+					const tab = state.tabs.find((t) => t.id === tabId);
+					if (!tab) return null;
+
+					const sourcePane = state.panes[browserPaneId];
+					if (!sourcePane || sourcePane.tabId !== tabId) return null;
+
+					const newPane = createDevToolsPane(tabId, browserPaneId);
+
+					let newLayout: MosaicNode<string>;
+					if (path && path.length > 0) {
+						newLayout = updateTree(tab.layout, [
+							{
+								path,
+								spec: {
+									$set: {
+										direction: "row",
+										first: browserPaneId,
+										second: newPane.id,
+										splitPercentage: 50,
+									},
+								},
+							},
+						]);
+					} else {
+						newLayout = {
+							direction: "row",
+							first: tab.layout,
+							second: newPane.id,
+							splitPercentage: 50,
+						};
+					}
+
+					const newPanes = { ...state.panes, [newPane.id]: newPane };
+
+					set({
+						tabs: state.tabs.map((t) =>
+							t.id === tabId ? { ...t, layout: newLayout } : t,
+						),
+						panes: newPanes,
+						focusedPaneIds: {
+							...state.focusedPaneIds,
+							[tabId]: browserPaneId,
+						},
+					});
+
+					return newPane.id;
 				},
 
 				// Chat operations

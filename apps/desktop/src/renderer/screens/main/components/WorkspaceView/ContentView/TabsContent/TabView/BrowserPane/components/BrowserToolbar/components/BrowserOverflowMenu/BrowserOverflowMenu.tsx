@@ -17,9 +17,13 @@ import { electronTrpc } from "renderer/lib/electron-trpc";
 
 interface BrowserOverflowMenuProps {
 	paneId: string;
+	onOpenDevTools?: () => void;
 }
 
-export function BrowserOverflowMenu({ paneId }: BrowserOverflowMenuProps) {
+export function BrowserOverflowMenu({
+	paneId,
+	onOpenDevTools,
+}: BrowserOverflowMenuProps) {
 	const screenshotMutation = electronTrpc.browser.screenshot.useMutation();
 	const reloadMutation = electronTrpc.browser.reload.useMutation();
 	const openDevToolsMutation = electronTrpc.browser.openDevTools.useMutation();
@@ -54,7 +58,11 @@ export function BrowserOverflowMenu({ paneId }: BrowserOverflowMenuProps) {
 	};
 
 	const handleOpenDevTools = () => {
-		openDevToolsMutation.mutate({ paneId });
+		if (onOpenDevTools) {
+			onOpenDevTools();
+		} else {
+			openDevToolsMutation.mutate({ paneId });
+		}
 	};
 
 	const handleClearCookies = () => {

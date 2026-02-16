@@ -62,6 +62,24 @@ class BrowserManager extends EventEmitter {
 		wc.openDevTools({ mode: "detach" });
 	}
 
+	attachDevTools(browserPaneId: string, devtoolsWebContentsId: number): void {
+		const browserWC = this.getWebContents(browserPaneId);
+		if (!browserWC) return;
+
+		const devtoolsWC = webContents.fromId(devtoolsWebContentsId);
+		if (!devtoolsWC) return;
+
+		browserWC.setDevToolsWebContents(devtoolsWC);
+		browserWC.openDevTools();
+	}
+
+	detachDevTools(browserPaneId: string): void {
+		const browserWC = this.getWebContents(browserPaneId);
+		if (!browserWC) return;
+
+		browserWC.closeDevTools();
+	}
+
 	private setupConsoleCapture(paneId: string, webContentsId: number): void {
 		const wc = webContents.fromId(webContentsId);
 		if (!wc) return;

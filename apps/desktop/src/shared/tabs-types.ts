@@ -8,7 +8,12 @@ import type { ChangeCategory } from "./changes-types";
 /**
  * Pane types that can be displayed within a tab
  */
-export type PaneType = "terminal" | "webview" | "file-viewer" | "chat";
+export type PaneType =
+	| "terminal"
+	| "webview"
+	| "file-viewer"
+	| "chat"
+	| "devtools";
 
 /**
  * Pane status for agent lifecycle indicators
@@ -134,6 +139,7 @@ export interface Pane {
 	fileViewer?: FileViewerState; // For file-viewer panes
 	chat?: ChatPaneState; // For chat panes
 	browser?: BrowserPaneState; // For browser (webview) panes
+	devtools?: DevToolsPaneState; // For devtools panes
 }
 
 /**
@@ -171,6 +177,14 @@ export interface BrowserPaneState {
 	historyIndex: number;
 	isLoading: boolean;
 	viewport?: ViewportPreset | null;
+}
+
+/**
+ * DevTools pane-specific properties
+ */
+export interface DevToolsPaneState {
+	/** The pane ID of the browser pane being inspected */
+	targetPaneId: string;
 }
 
 /**

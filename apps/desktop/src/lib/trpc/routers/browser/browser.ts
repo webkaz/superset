@@ -110,6 +110,28 @@ export const createBrowserRouter = () => {
 				return { success: true };
 			}),
 
+		attachDevTools: publicProcedure
+			.input(
+				z.object({
+					browserPaneId: z.string(),
+					devtoolsWebContentsId: z.number(),
+				}),
+			)
+			.mutation(({ input }) => {
+				browserManager.attachDevTools(
+					input.browserPaneId,
+					input.devtoolsWebContentsId,
+				);
+				return { success: true };
+			}),
+
+		detachDevTools: publicProcedure
+			.input(z.object({ browserPaneId: z.string() }))
+			.mutation(({ input }) => {
+				browserManager.detachDevTools(input.browserPaneId);
+				return { success: true };
+			}),
+
 		getPageInfo: publicProcedure
 			.input(z.object({ paneId: z.string() }))
 			.query(({ input }) => {
