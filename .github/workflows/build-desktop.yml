@@ -31,13 +31,17 @@ on:
 jobs:
   build-macos:
     name: Build - macOS (${{ matrix.arch }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     environment: production
 
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64]
+        include:
+          - arch: arm64
+            runner: macos-latest
+          - arch: x64
+            runner: macos-13
 
     steps:
       - name: Checkout code
@@ -105,12 +109,16 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: bun run package -- --publish never --config ${{ inputs.electron_builder_config }}
+        run: bun run package -- --publish never --config ${{ inputs.electron_builder_config }} --mac dmg zip --${{ matrix.arch }}
 
       - name: Verify app-update.yml exists
         working-directory: apps/desktop
         run: |
-          APP_DIR=$(ls -d release/mac-arm64/*.app | head -1)
+          APP_DIR=$(find release -maxdepth 2 -type d -name "*.app" | head -1)
+          test -n "$APP_DIR" || {
+            echo "::error::No macOS .app bundle generated in apps/desktop/release"
+            exit 1
+          }
           test -f "$APP_DIR/Contents/Resources/app-update.yml" || {
             echo "::error::app-update.yml missing from $APP_DIR/Contents/Resources/ — auto-update will be broken"
             exit 1
@@ -133,9 +141,10 @@ jobs:
           if-no-files-found: error
 
       - name: Upload auto-update manifest
+        if: matrix.arch == 'arm64'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.artifact_prefix }}-mac-update-manifest
+          name: ${{ inputs.artifact_prefix }}-mac-${{ matrix.arch }}-update-manifest
           path: apps/desktop/release/*-mac.yml
           retention-days: ${{ inputs.artifact_retention_days }}
           if-no-files-found: error
