@@ -13,11 +13,11 @@
 		"NEXT_PUBLIC_MARKETING_URL",
 		"NEXT_PUBLIC_DOCS_URL",
 		"NEXT_PUBLIC_ADMIN_URL",
+		"NEXT_PUBLIC_ELECTRIC_URL",
 		"POSTHOG_API_KEY",
 		"POSTHOG_PROJECT_ID",
 		"KV_REST_API_URL",
-		"KV_REST_API_TOKEN",
-		"STREAMS_URL"
+		"KV_REST_API_TOKEN"
 	],
 	"globalPassThroughEnv": [
 		"NODE_ENV",
@@ -41,6 +41,10 @@
 			]
 		},
 		"dev": {
+			"cache": false,
+			"persistent": true
+		},
+		"//#dev:caddy": {
 			"cache": false,
 			"persistent": true
 		},

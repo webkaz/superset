@@ -18,7 +18,10 @@ import {
 	cleanLayout,
 	extractPaneIdsFromLayout,
 } from "renderer/stores/tabs/utils";
+import { useTheme } from "renderer/stores/theme";
+import { BrowserPane } from "./BrowserPane";
 import { ChatPane } from "./ChatPane";
+import { DevToolsPane } from "./DevToolsPane";
 import { FileViewerPane } from "./FileViewerPane";
 import { TabPane } from "./TabPane";
 
@@ -27,6 +30,7 @@ interface TabViewProps {
 }
 
 export function TabView({ tab }: TabViewProps) {
+	const activeTheme = useTheme();
 	const updateTabLayout = useTabsStore((s) => s.updateTabLayout);
 	const removePane = useTabsStore((s) => s.removePane);
 	const removeTab = useTabsStore((s) => s.removeTab);
@@ -60,11 +64,22 @@ export function TabView({ tab }: TabViewProps) {
 
 	// Memoize the filtered panes to avoid creating new objects on every render
 	const tabPanes = useMemo(() => {
-		const result: Record<string, { tabId: string; type: string }> = {};
+		const result: Record<
+			string,
+			{
+				tabId: string;
+				type: string;
+				devtools?: { targetPaneId: string };
+			}
+		> = {};
 		for (const paneId of layoutPaneIds) {
 			const pane = allPanes[paneId];
 			if (pane?.tabId === tab.id) {
-				result[paneId] = { tabId: pane.tabId, type: pane.type };
+				result[paneId] = {
+					tabId: pane.tabId,
+					type: pane.type,
+					devtools: pane.devtools,
+				};
 			}
 		}
 		return result;
@@ -177,6 +192,37 @@ export function TabView({ tab }: TabViewProps) {
 				);
 			}
 
+			// Route browser panes to BrowserPane component
+			if (paneInfo.type === "webview") {
+				return (
+					<BrowserPane
+						paneId={paneId}
+						path={path}
+						isActive={isActive}
+						tabId={tab.id}
+						splitPaneAuto={splitPaneAuto}
+						removePane={removePane}
+						setFocusedPane={setFocusedPane}
+					/>
+				);
+			}
+
+			// Route devtools panes
+			if (paneInfo.type === "devtools" && paneInfo.devtools) {
+				return (
+					<DevToolsPane
+						paneId={paneId}
+						path={path}
+						isActive={isActive}
+						tabId={tab.id}
+						targetPaneId={paneInfo.devtools.targetPaneId}
+						splitPaneAuto={splitPaneAuto}
+						removePane={removePane}
+						setFocusedPane={setFocusedPane}
+					/>
+				);
+			}
+
 			// Default: terminal panes
 			return (
 				<TabPane
@@ -225,7 +271,11 @@ export function TabView({ tab }: TabViewProps) {
 				renderTile={renderPane}
 				value={cleanedLayout}
 				onChange={handleLayoutChange}
-				className="mosaic-theme-dark"
+				className={
+					activeTheme?.type === "light"
+						? "mosaic-theme-light"
+						: "mosaic-theme-dark"
+				}
 				dragAndDropManager={dragDropManager}
 			/>
 		</div>

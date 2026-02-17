@@ -40,10 +40,24 @@ export function createServer(options: AIDBProxyServerOptions) {
 	});
 
 	if (options.cors !== false) {
+		const allowedOrigins = options.corsOrigins
+			? Array.isArray(options.corsOrigins)
+				? options.corsOrigins
+				: [options.corsOrigins]
+			: null;
+
 		app.use(
 			"*",
 			cors({
-				origin: options.corsOrigins ?? "*",
+				// When allowedOrigins is configured, use a function that also permits
+				// null origins (Electron file://, non-browser clients).
+				// Auth is enforced via Bearer tokens, not cookies, so this is safe.
+				origin: allowedOrigins
+					? (origin) => {
+							if (!origin || origin === "null") return origin ?? "*";
+							return allowedOrigins.includes(origin) ? origin : "";
+						}
+					: "*",
 				allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
 				allowHeaders: [
 					"Content-Type",
@@ -109,7 +123,7 @@ export function createServer(options: AIDBProxyServerOptions) {
 				toolResults: "/v1/sessions/:sessionId/tool-results",
 				approvals: "/v1/sessions/:sessionId/approvals/:approvalId",
 				chunks: "/v1/sessions/:sessionId/chunks",
-				generationsStart: "/v1/sessions/:sessionId/generations/start",
+				chunksBatch: "/v1/sessions/:sessionId/chunks/batch",
 				generationsFinish: "/v1/sessions/:sessionId/generations/finish",
 				fork: "/v1/sessions/:sessionId/fork",
 				stop: "/v1/sessions/:sessionId/stop",

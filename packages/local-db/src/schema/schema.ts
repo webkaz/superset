@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 import type {
 	BranchPrefixMode,
 	ExternalApp,
+	FileOpenMode,
 	GitHubStatus,
 	GitStatus,
 	TerminalLinkBehavior,
@@ -38,6 +39,8 @@ export const projects = sqliteTable(
 		branchPrefixMode: text("branch_prefix_mode").$type<BranchPrefixMode>(),
 		branchPrefixCustom: text("branch_prefix_custom"),
 		hideImage: integer("hide_image", { mode: "boolean" }),
+		iconUrl: text("icon_url"),
+		neonProjectId: text("neon_project_id"),
 	},
 	(table) => [
 		index("projects_main_repo_path_idx").on(table.mainRepoPath),
@@ -112,6 +115,9 @@ export const workspaces = sqliteTable(
 		// Timestamp when deletion was initiated. Non-null means deletion in progress.
 		// Workspaces with deletingAt set should be filtered out from queries.
 		deletingAt: integer("deleting_at"),
+		// Allocated port base for multi-worktree dev instances.
+		// Each workspace gets a range of 10 ports starting from this base.
+		portBase: integer("port_base"),
 	},
 	(table) => [
 		index("workspaces_project_id_idx").on(table.projectId),
@@ -157,6 +163,12 @@ export const settings = sqliteTable("settings", {
 		mode: "boolean",
 	}),
 	deleteLocalBranch: integer("delete_local_branch", { mode: "boolean" }),
+	fileOpenMode: text("file_open_mode").$type<FileOpenMode>(),
+	showPresetsBar: integer("show_presets_bar", { mode: "boolean" }),
+	terminalFontFamily: text("terminal_font_family"),
+	terminalFontSize: integer("terminal_font_size"),
+	editorFontFamily: text("editor_font_family"),
+	editorFontSize: integer("editor_font_size"),
 });
 
 export type InsertSettings = typeof settings.$inferInsert;
@@ -296,3 +308,29 @@ export const tasks = sqliteTable(
 
 export type InsertTask = typeof tasks.$inferInsert;
 export type SelectTask = typeof tasks.$inferSelect;
+
+/**
+ * Browser history table - persists browsing history for URL autocomplete
+ */
+export const browserHistory = sqliteTable(
+	"browser_history",
+	{
+		id: text("id")
+			.primaryKey()
+			.$defaultFn(() => uuidv4()),
+		url: text("url").notNull().unique(),
+		title: text("title").notNull().default(""),
+		faviconUrl: text("favicon_url"),
+		lastVisitedAt: integer("last_visited_at")
+			.notNull()
+			.$defaultFn(() => Date.now()),
+		visitCount: integer("visit_count").notNull().default(1),
+	},
+	(table) => [
+		index("browser_history_url_idx").on(table.url),
+		index("browser_history_last_visited_at_idx").on(table.lastVisitedAt),
+	],
+);
+
+export type InsertBrowserHistory = typeof browserHistory.$inferInsert;
+export type SelectBrowserHistory = typeof browserHistory.$inferSelect;

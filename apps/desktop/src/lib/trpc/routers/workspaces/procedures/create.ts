@@ -147,7 +147,7 @@ function handleExistingWorktree({
 	const setupConfig = loadSetupConfig({
 		mainRepoPath: project.mainRepoPath,
 		worktreePath: existingWorktree.path,
-		projectName: project.name,
+		projectId: project.id,
 	});
 
 	return {
@@ -253,7 +253,7 @@ async function handleNewWorktree({
 	const setupConfig = loadSetupConfig({
 		mainRepoPath: project.mainRepoPath,
 		worktreePath,
-		projectName: project.name,
+		projectId: project.id,
 	});
 
 	return {
@@ -396,7 +396,7 @@ export const createCreateProcedures = () => {
 						const setupConfig = loadSetupConfig({
 							mainRepoPath: project.mainRepoPath,
 							worktreePath: orphanedWorktree.path,
-							projectName: project.name,
+							projectId: project.id,
 						});
 						return {
 							workspace,
@@ -475,7 +475,7 @@ export const createCreateProcedures = () => {
 				const setupConfig = loadSetupConfig({
 					mainRepoPath: project.mainRepoPath,
 					worktreePath,
-					projectName: project.name,
+					projectId: project.id,
 				});
 
 				return {
@@ -666,7 +666,7 @@ export const createCreateProcedures = () => {
 				const setupConfig = loadSetupConfig({
 					mainRepoPath: project.mainRepoPath,
 					worktreePath: worktree.path,
-					projectName: project.name,
+					projectId: project.id,
 				});
 
 				track("workspace_opened", {
@@ -725,6 +725,8 @@ export const createCreateProcedures = () => {
 								gitStatus: {
 									branch: existingWorktree.branch,
 									needsRebase: false,
+									ahead: 0,
+									behind: 0,
 									lastRefreshed: Date.now(),
 								},
 							})
@@ -779,7 +781,7 @@ export const createCreateProcedures = () => {
 					const setupConfig = loadSetupConfig({
 						mainRepoPath: project.mainRepoPath,
 						worktreePath: existingWorktree.path,
-						projectName: project.name,
+						projectId: project.id,
 					});
 
 					track("workspace_opened", {
@@ -809,6 +811,8 @@ export const createCreateProcedures = () => {
 						gitStatus: {
 							branch: input.branch,
 							needsRebase: false,
+							ahead: 0,
+							behind: 0,
 							lastRefreshed: Date.now(),
 						},
 					})
@@ -836,7 +840,7 @@ export const createCreateProcedures = () => {
 				const setupConfig = loadSetupConfig({
 					mainRepoPath: project.mainRepoPath,
 					worktreePath: input.worktreePath,
-					projectName: project.name,
+					projectId: project.id,
 				});
 
 				track("workspace_created", {

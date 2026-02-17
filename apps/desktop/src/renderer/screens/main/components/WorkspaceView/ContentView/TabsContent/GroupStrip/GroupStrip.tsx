@@ -2,6 +2,7 @@ import { FEATURE_FLAGS } from "@superset/shared/constants";
 import { Button } from "@superset/ui/button";
 import {
 	DropdownMenu,
+	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
@@ -18,12 +19,13 @@ import {
 	HiMiniCommandLine,
 	HiStar,
 } from "react-icons/hi2";
-import { TbMessageCirclePlus } from "react-icons/tb";
+import { TbMessageCirclePlus, TbWorld } from "react-icons/tb";
 import {
 	getPresetIcon,
 	useIsDarkTheme,
 } from "renderer/assets/app-icons/preset-icons";
 import { HotkeyTooltipContent } from "renderer/components/HotkeyTooltipContent";
+import { electronTrpc } from "renderer/lib/electron-trpc";
 import { usePresets } from "renderer/react-query/presets";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import { useTabsWithPresets } from "renderer/stores/tabs/useTabsWithPresets";
@@ -45,6 +47,7 @@ export function GroupStrip() {
 	const tabHistoryStacks = useTabsStore((s) => s.tabHistoryStacks);
 	const { addTab, openPreset } = useTabsWithPresets();
 	const addChatTab = useTabsStore((s) => s.addChatTab);
+	const addBrowserTab = useTabsStore((s) => s.addBrowserTab);
 	const renameTab = useTabsStore((s) => s.renameTab);
 	const removeTab = useTabsStore((s) => s.removeTab);
 	const setActiveTab = useTabsStore((s) => s.setActiveTab);
@@ -55,6 +58,27 @@ export function GroupStrip() {
 	const hasAiChat = useFeatureFlagEnabled(FEATURE_FLAGS.AI_CHAT);
 	const { presets } = usePresets();
 	const isDark = useIsDarkTheme();
+	const utils = electronTrpc.useUtils();
+	const { data: showPresetsBar } =
+		electronTrpc.settings.getShowPresetsBar.useQuery();
+	const setShowPresetsBar = electronTrpc.settings.setShowPresetsBar.useMutation(
+		{
+			onMutate: async ({ enabled }) => {
+				await utils.settings.getShowPresetsBar.cancel();
+				const previous = utils.settings.getShowPresetsBar.getData();
+				utils.settings.getShowPresetsBar.setData(undefined, enabled);
+				return { previous };
+			},
+			onError: (_err, _vars, context) => {
+				if (context?.previous !== undefined) {
+					utils.settings.getShowPresetsBar.setData(undefined, context.previous);
+				}
+			},
+			onSettled: () => {
+				utils.settings.getShowPresetsBar.invalidate();
+			},
+		},
+	);
 	const navigate = useNavigate();
 	const [dropdownOpen, setDropdownOpen] = useState(false);
 
@@ -97,6 +121,11 @@ export function GroupStrip() {
 	const handleAddChat = () => {
 		if (!activeWorkspaceId) return;
 		addChatTab(activeWorkspaceId);
+	};
+
+	const handleAddBrowser = () => {
+		if (!activeWorkspaceId) return;
+		addBrowserTab(activeWorkspaceId);
 	};
 
 	const handleSelectPreset = (preset: Parameters<typeof openPreset>[1]) => {
@@ -148,12 +177,12 @@ export function GroupStrip() {
 	}, []);
 
 	return (
-		<div className="flex items-center h-10 flex-1 min-w-0">
+		<div
+			className="flex items-center h-10 flex-1 min-w-0 overflow-x-auto overflow-y-hidden"
+			style={{ scrollbarWidth: "none" }}
+		>
 			{tabs.length > 0 && (
-				<div
-					className="flex items-center h-full overflow-x-auto overflow-y-hidden border-l border-border"
-					style={{ scrollbarWidth: "none" }}
-				>
+				<div className="flex items-center h-full shrink-0 border-l border-border">
 					{tabs.map((tab, index) => {
 						const isPrevOfActive = index === activeTabIndex - 1;
 						const isNextOfActive = index === activeTabIndex + 1;
@@ -227,6 +256,24 @@ export function GroupStrip() {
 								</TooltipContent>
 							</Tooltip>
 						)}
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="outline"
+									className="h-7 rounded-none border-l-0 px-1.5 gap-1 text-xs"
+									onClick={handleAddBrowser}
+								>
+									<TbWorld className="size-3.5" />
+									Browser
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent side="top" sideOffset={4}>
+								<HotkeyTooltipContent
+									label="New Browser"
+									hotkeyId="NEW_BROWSER"
+								/>
+							</TooltipContent>
+						</Tooltip>
 						<DropdownMenuTrigger asChild>
 							<Button
 								variant="outline"
@@ -269,6 +316,17 @@ export function GroupStrip() {
 								})}
 								<DropdownMenuSeparator />
 							</>
+						)}
+						{presets.length > 0 && (
+							<DropdownMenuCheckboxItem
+								checked={showPresetsBar ?? false}
+								onCheckedChange={(checked) =>
+									setShowPresetsBar.mutate({ enabled: checked })
+								}
+								onSelect={(e) => e.preventDefault()}
+							>
+								Show Preset Bar
+							</DropdownMenuCheckboxItem>
 						)}
 						<DropdownMenuItem
 							onClick={handleOpenPresetsSettings}

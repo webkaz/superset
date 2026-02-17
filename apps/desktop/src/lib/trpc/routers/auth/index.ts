@@ -5,6 +5,8 @@ import { observable } from "@trpc/server/observable";
 import { shell } from "electron";
 import { env } from "main/env.main";
 import { getDeviceName, getHashedDeviceId } from "main/lib/device-info";
+import { PROTOCOL_SCHEME } from "shared/constants";
+import { env as sharedEnv } from "shared/env.shared";
 import { z } from "zod";
 import { publicProcedure, router } from "../..";
 import {
@@ -85,6 +87,11 @@ export const createAuthRouter = () => {
 					);
 					connectUrl.searchParams.set("provider", input.provider);
 					connectUrl.searchParams.set("state", state);
+					connectUrl.searchParams.set("protocol", PROTOCOL_SCHEME);
+					connectUrl.searchParams.set(
+						"local_callback",
+						`http://127.0.0.1:${sharedEnv.DESKTOP_NOTIFICATIONS_PORT}/auth/callback`,
+					);
 					await shell.openExternal(connectUrl.toString());
 					return { success: true };
 				} catch (err) {

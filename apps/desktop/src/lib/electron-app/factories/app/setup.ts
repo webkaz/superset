@@ -53,15 +53,16 @@ export async function makeAppSetup(
 		}
 	});
 
-	app.on("web-contents-created", (_, contents) =>
+	app.on("web-contents-created", (_, contents) => {
+		if (contents.getType() === "webview") return;
 		contents.on("will-navigate", (event, url) => {
 			// Always prevent in-app navigation for external URLs
 			if (url.startsWith("http://") || url.startsWith("https://")) {
 				event.preventDefault();
 				shell.openExternal(url);
 			}
-		}),
-	);
+		});
+	});
 
 	app.on("window-all-closed", () => !PLATFORM.IS_MAC && app.quit());
 	app.on("before-quit", () => {});
@@ -82,3 +83,10 @@ PLATFORM.IS_WINDOWS &&
 	);
 
 app.commandLine.appendSwitch("force-color-profile", "srgb");
+
+// Enable CDP for desktop automation MCP (playwright-core connects via this port)
+if (env.NODE_ENV === "development") {
+	const cdpPort = String(process.env.DESKTOP_AUTOMATION_PORT || 9223);
+	app.commandLine.appendSwitch("remote-debugging-port", cdpPort);
+	app.commandLine.appendSwitch("remote-allow-origins", "*");
+}
