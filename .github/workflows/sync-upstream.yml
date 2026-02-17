@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   sync:
@@ -28,11 +27,10 @@ jobs:
           git remote add upstream https://github.com/superset-sh/superset.git || true
           git fetch upstream main
 
-      - name: Merge upstream/main into sync branch
+      - name: Merge upstream/main into local main
         id: merge
         run: |
-          BRANCH="chore/sync-upstream-main"
-          git checkout -B "$BRANCH" origin/main
+          git checkout -B main origin/main
           if git merge --no-edit upstream/main; then
             echo "conflict=false" >> "$GITHUB_OUTPUT"
           else
@@ -55,30 +53,7 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Push sync branch
+      - name: Push merged main
         if: steps.changes.outputs.changed == 'true'
         run: |
-          git push --force-with-lease origin chore/sync-upstream-main
-
-      - name: Create or update PR
-        if: steps.changes.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR_NUMBER=$(gh pr list \
-            --head chore/sync-upstream-main \
-            --base main \
-            --json number \
-            --jq '.[0].number')
-
-          if [ -n "$PR_NUMBER" ]; then
-            gh pr edit "$PR_NUMBER" \
-              --title "chore: sync upstream main" \
-              --body "Automated sync from \`superset-sh/superset\` upstream \`main\`."
-          else
-            gh pr create \
-              --base main \
-              --head chore/sync-upstream-main \
-              --title "chore: sync upstream main" \
-              --body "Automated sync from \`superset-sh/superset\` upstream \`main\`."
-          fi
+          git push origin main

@@ -1,15 +1,17 @@
 name: Release Desktop Fork x64
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
         description: "Version for desktop package.json (e.g., 0.0.78)"
-        required: true
+        required: false
         type: string
       release_tag:
         description: "Release tag (e.g., desktop-v0.0.78-x64)"
-        required: true
+        required: false
         type: string
       set_latest:
         description: "Mark as latest release"
@@ -24,6 +26,7 @@ jobs:
   release:
     name: Build and Release macOS x64
     runs-on: macos-15-intel
+    if: github.repository == 'webkaz/superset' && (github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]')
 
     steps:
       - name: Checkout
@@ -57,10 +60,32 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen
 
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [ -z "$VERSION" ]; then
+            VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          fi
+
+          TAG="${{ inputs.release_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="desktop-v${VERSION}-x64-auto-${GITHUB_RUN_NUMBER}"
+          fi
+
+          SET_LATEST="${{ inputs.set_latest }}"
+          if [ -z "$SET_LATEST" ]; then
+            SET_LATEST="true"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "set_latest=$SET_LATEST" >> "$GITHUB_OUTPUT"
+
       - name: Set desktop version
         working-directory: apps/desktop
         run: |
-          VERSION="${{ inputs.version }}"
+          VERSION="${{ steps.meta.outputs.version }}"
           node -e "
             const fs = require('fs');
             const pkg = require('./package.json');
@@ -104,14 +129,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ inputs.release_tag }}"
+          TAG="${{ steps.meta.outputs.tag }}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG already exists"
             exit 1
           fi
 
           LATEST_FLAG=""
-          if [ "${{ inputs.set_latest }}" = "false" ]; then
+          if [ "${{ steps.meta.outputs.set_latest }}" = "false" ]; then
             LATEST_FLAG="--latest=false"
           fi
 
