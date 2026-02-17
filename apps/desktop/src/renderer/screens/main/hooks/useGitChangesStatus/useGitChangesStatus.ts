@@ -1,5 +1,4 @@
 import { electronTrpc } from "renderer/lib/electron-trpc";
-import { useChangesStore } from "renderer/stores/changes";
 
 interface UseGitChangesStatusOptions {
 	worktreePath: string | undefined;
@@ -16,21 +15,19 @@ export function useGitChangesStatus({
 	refetchOnWindowFocus,
 	staleTime,
 }: UseGitChangesStatusOptions) {
-	const { getBaseBranch } = useChangesStore();
-	const baseBranch = getBaseBranch(worktreePath || "");
-
 	const { data: branchData } = electronTrpc.changes.getBranches.useQuery(
 		{ worktreePath: worktreePath || "" },
 		{ enabled: enabled && !!worktreePath },
 	);
 
 	const effectiveBaseBranch =
-		baseBranch ??
-		branchData?.worktreeBaseBranch ??
-		branchData?.defaultBranch ??
-		"main";
+		branchData?.worktreeBaseBranch ?? branchData?.defaultBranch ?? "main";
 
-	const { data: status, isLoading } = electronTrpc.changes.getStatus.useQuery(
+	const {
+		data: status,
+		isLoading,
+		refetch,
+	} = electronTrpc.changes.getStatus.useQuery(
 		{
 			worktreePath: worktreePath || "",
 			defaultBranch: effectiveBaseBranch,
@@ -43,5 +40,5 @@ export function useGitChangesStatus({
 		},
 	);
 
-	return { status, isLoading, effectiveBaseBranch };
+	return { status, isLoading, effectiveBaseBranch, refetch };
 }

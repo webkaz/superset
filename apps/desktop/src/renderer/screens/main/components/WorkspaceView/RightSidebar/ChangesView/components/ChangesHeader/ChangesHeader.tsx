@@ -20,7 +20,6 @@ import { HiArrowPath, HiCheck } from "react-icons/hi2";
 import { LuGitBranch } from "react-icons/lu";
 import { VscGitStash, VscGitStashApply } from "react-icons/vsc";
 import { electronTrpc } from "renderer/lib/electron-trpc";
-import { useChangesStore } from "renderer/stores/changes";
 import type { ChangesViewMode } from "../../types";
 import { ViewModeToggle } from "../ViewModeToggle";
 import { PRButton } from "./components/PRButton";
@@ -38,21 +37,23 @@ interface ChangesHeaderProps {
 }
 
 function BaseBranchSelector({ worktreePath }: { worktreePath: string }) {
-	const { getBaseBranch, setBaseBranch } = useChangesStore();
-	const baseBranch = getBaseBranch(worktreePath);
 	const [open, setOpen] = useState(false);
 	const [search, setSearch] = useState("");
+	const utils = electronTrpc.useUtils();
 	const { data: branchData, isLoading } =
 		electronTrpc.changes.getBranches.useQuery(
 			{ worktreePath },
 			{ enabled: !!worktreePath },
 		);
 
+	const updateBaseBranch = electronTrpc.changes.updateBaseBranch.useMutation({
+		onSuccess: () => {
+			utils.changes.getBranches.invalidate({ worktreePath });
+		},
+	});
+
 	const effectiveBaseBranch =
-		baseBranch ??
-		branchData?.worktreeBaseBranch ??
-		branchData?.defaultBranch ??
-		"main";
+		branchData?.worktreeBaseBranch ?? branchData?.defaultBranch ?? "main";
 	const sortedBranches = useMemo(() => {
 		return [...(branchData?.remote ?? [])].sort((a, b) => {
 			if (a === branchData?.defaultBranch) return -1;
@@ -70,11 +71,10 @@ function BaseBranchSelector({ worktreePath }: { worktreePath: string }) {
 	}, [sortedBranches, search]);
 
 	const handleBranchSelect = (branch: string) => {
-		if (branch === branchData?.defaultBranch) {
-			setBaseBranch(worktreePath, null);
-		} else {
-			setBaseBranch(worktreePath, branch);
-		}
+		updateBaseBranch.mutate({
+			worktreePath,
+			baseBranch: branch === branchData?.defaultBranch ? null : branch,
+		});
 		setOpen(false);
 		setSearch("");
 	};

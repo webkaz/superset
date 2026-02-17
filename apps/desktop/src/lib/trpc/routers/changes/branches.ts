@@ -35,6 +35,11 @@ export const createBranchesRouter = () => {
 					const git = simpleGit(input.worktreePath);
 
 					const branchSummary = await git.branch(["-a"]);
+					const currentBranch = branchSummary.current;
+
+					const gitConfigBase = await git
+						.raw(["config", `branch.${currentBranch}.base`])
+						.catch(() => "");
 
 					const localBranches: string[] = [];
 					const remote: string[] = [];
@@ -61,7 +66,8 @@ export const createBranchesRouter = () => {
 						remote: remote.sort(),
 						defaultBranch,
 						checkedOutBranches,
-						worktreeBaseBranch: worktreeRecord?.baseBranch ?? null,
+						worktreeBaseBranch:
+							gitConfigBase.trim() || worktreeRecord?.baseBranch || null,
 					};
 				},
 			),
@@ -90,6 +96,35 @@ export const createBranchesRouter = () => {
 					})
 					.where(eq(worktrees.path, input.worktreePath))
 					.run();
+
+				return { success: true };
+			}),
+
+		updateBaseBranch: publicProcedure
+			.input(
+				z.object({
+					worktreePath: z.string(),
+					baseBranch: z.string().nullable(),
+				}),
+			)
+			.mutation(async ({ input }): Promise<{ success: boolean }> => {
+				assertRegisteredWorktree(input.worktreePath);
+
+				const git = simpleGit(input.worktreePath);
+				const branchSummary = await git.branch([]);
+				const currentBranch = branchSummary.current;
+
+				if (input.baseBranch) {
+					await git.raw([
+						"config",
+						`branch.${currentBranch}.base`,
+						input.baseBranch,
+					]);
+				} else {
+					await git
+						.raw(["config", "--unset", `branch.${currentBranch}.base`])
+						.catch(() => {});
+				}
 
 				return { success: true };
 			}),
