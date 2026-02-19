@@ -63,6 +63,55 @@ gh workflow run release-desktop-fork-x64.yml -R webkaz/superset -f set_latest=fa
 gh run list -R webkaz/superset --limit 10
 ```
 
+## Release Naming and mise Update
+
+- 自動リリースタグ形式:
+  - `desktop-v<version>-x64-auto-<run_number>`
+  - 例: `desktop-v0.0.78-x64-auto-1234`
+- 手動リリース時は `release_tag` を明示指定してもよい
+
+mise 更新手順:
+
+```bash
+mise ls-remote github:webkaz/superset | tail -n 20
+mise install github:webkaz/superset@<tag>
+mise use -g github:webkaz/superset@<tag>
+```
+
+`latest` を使う場合:
+
+```bash
+mise install github:webkaz/superset@latest
+mise use -g github:webkaz/superset@latest
+```
+
+## Incident Playbook
+
+### 1) Sync Upstream が失敗したとき
+
+1. 最新 run を確認
+   - `gh run list -R webkaz/superset --workflow sync-upstream.yml --limit 1`
+2. 失敗ログを確認
+   - `gh run view -R webkaz/superset <run_id> --log-failed`
+3. よくある原因
+   - workflow 以外のマージ競合（仕様どおり停止）
+   - GitHub 側一時エラー/権限エラー
+4. 競合時の復旧
+   - ローカルで `upstream/main` を取り込み、手動解決して `main` に push
+   - push 後に `sync-upstream.yml` を手動再実行して確認
+
+### 2) Intel Release が失敗したとき
+
+1. run を確認
+   - `gh run list -R webkaz/superset --workflow release-desktop-fork-x64.yml --limit 1`
+2. 失敗ログを確認
+   - `gh run view -R webkaz/superset <run_id> --log-failed`
+3. よくある原因
+   - リリースタグ重複（早期失敗）
+   - 依存解決や Electron build のタイムアウト
+4. 復旧
+   - 新しい `release_tag` を指定して `workflow_dispatch` で再実行
+
 ## Notes
 
 - `sync-upstream.yml` は `gh workflow run` 実行時に `-R "${{ github.repository }}"` を明示している
