@@ -9,6 +9,7 @@ on:
 jobs:
   generate-changelog:
     name: Generate Changelog
+    if: false
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -16,6 +16,7 @@ permissions:
 
 jobs:
   build:
+    if: false
     uses: ./.github/workflows/build-desktop.yml
     with:
       channel: stable
@@ -28,7 +29,7 @@ jobs:
     name: Create GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    if: false
 
     steps:
       - name: Checkout code

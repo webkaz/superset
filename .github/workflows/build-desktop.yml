@@ -31,6 +31,7 @@ on:
 jobs:
   build-macos:
     name: Build - macOS (${{ matrix.arch }})
+    if: false
     runs-on: ${{ matrix.runner }}
     environment: production
 
@@ -151,6 +152,7 @@ jobs:
 
   build-linux:
     name: Build - Linux (x64)
+    if: false
     runs-on: ubuntu-latest
     environment: production
 

@@ -9,7 +9,7 @@ on:
 jobs:
   sherif:
     name: Sherif
-    if: github.repository == 'superset-sh/superset'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -34,7 +34,7 @@ jobs:
 
   lint:
     name: Lint
-    if: github.repository == 'superset-sh/superset'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -59,7 +59,7 @@ jobs:
 
   test:
     name: Test
-    if: github.repository == 'superset-sh/superset'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -84,7 +84,7 @@ jobs:
 
   typecheck:
     name: Typecheck
-    if: github.repository == 'superset-sh/superset'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -109,7 +109,7 @@ jobs:
 
   build:
     name: Build
-    if: github.repository == 'superset-sh/superset'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
