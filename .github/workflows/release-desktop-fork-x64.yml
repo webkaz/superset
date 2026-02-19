@@ -20,10 +20,15 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-desktop-fork-x64
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Build and Release macOS x64
     runs-on: macos-15-intel
+    timeout-minutes: 45
     if: github.repository == 'webkaz/superset' && github.event_name == 'workflow_dispatch'
 
     steps:
@@ -80,6 +85,16 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "set_latest=$SET_LATEST" >> "$GITHUB_OUTPUT"
 
+      - name: Validate release tag does not already exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists"
+            exit 1
+          fi
+
       - name: Set desktop version
         working-directory: apps/desktop
         run: |
@@ -104,34 +119,13 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: bun run package -- --publish never --config electron-builder.fork-x64.ts --mac dmg zip --x64
-
-      - name: Prepare release assets
-        working-directory: apps/desktop/release
-        run: |
-          ls -la
-          for file in *.dmg; do
-            if [[ -f "$file" ]]; then
-              cp "$file" "Superset-x64.dmg"
-            fi
-          done
-          for file in *-x64-mac.zip; do
-            if [[ -f "$file" ]]; then
-              cp "$file" "Superset-x64-mac.zip"
-            fi
-          done
-          echo "Prepared assets:"
-          ls -la
+        run: bun run package -- --publish never --config electron-builder.fork-x64.ts --mac zip --x64
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ steps.meta.outputs.tag }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists"
-            exit 1
-          fi
 
           LATEST_FLAG=""
           if [ "${{ steps.meta.outputs.set_latest }}" = "false" ]; then
@@ -139,7 +133,6 @@ jobs:
           fi
 
           gh release create "$TAG" \
-            apps/desktop/release/*.dmg \
             apps/desktop/release/*-mac.zip \
             apps/desktop/release/*-mac.yml \
             --title "Superset Desktop $TAG (x64)" \
