@@ -1,8 +1,6 @@
 name: Release Desktop Fork x64
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       version:
@@ -26,7 +24,7 @@ jobs:
   release:
     name: Build and Release macOS x64
     runs-on: macos-15-intel
-    if: github.repository == 'webkaz/superset' && (github.event_name == 'workflow_dispatch' || github.actor == 'github-actions[bot]')
+    if: github.repository == 'webkaz/superset' && github.event_name == 'workflow_dispatch'
 
     steps:
       - name: Checkout
@@ -93,7 +91,7 @@ jobs:
             fs.writeFileSync('./package.json', JSON.stringify(pkg, null, '\t') + '\n');
           "
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.meta.outputs.version }}
 
       - name: Compile desktop app
         working-directory: apps/desktop
