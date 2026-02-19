@@ -34,13 +34,34 @@ jobs:
           git checkout -B main origin/main
           if git merge --no-edit upstream/main; then
             echo "conflict=false" >> "$GITHUB_OUTPUT"
+            echo "auto_resolved=false" >> "$GITHUB_OUTPUT"
           else
-            git merge --abort || true
             echo "conflict=true" >> "$GITHUB_OUTPUT"
+            echo "auto_resolved=false" >> "$GITHUB_OUTPUT"
+
+            CONFLICT_FILES=$(git diff --name-only --diff-filter=U || true)
+            if [ -z "$CONFLICT_FILES" ]; then
+              git merge --abort || true
+              exit 1
+            fi
+
+            if printf '%s\n' "$CONFLICT_FILES" | grep -qv '^\.github/workflows/'; then
+              git merge --abort || true
+              exit 1
+            fi
+
+            while IFS= read -r file; do
+              [ -z "$file" ] && continue
+              git checkout --ours -- "$file"
+              git add "$file"
+            done <<< "$CONFLICT_FILES"
+
+            git commit -m "chore: auto-resolve workflow conflicts during upstream sync"
+            echo "auto_resolved=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Stop when merge has conflicts
-        if: steps.merge.outputs.conflict == 'true'
+        if: steps.merge.outputs.conflict == 'true' && steps.merge.outputs.auto_resolved != 'true'
         run: |
           echo "Upstream sync has merge conflicts. Resolve manually."
           exit 1
