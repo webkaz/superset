@@ -36,7 +36,7 @@ jobs:
         id: merge
         run: |
           git checkout -B main origin/main
-          if git merge --no-edit upstream/main; then
+          if git merge --no-commit --no-ff upstream/main; then
             echo "conflict=false" >> "$GITHUB_OUTPUT"
             echo "auto_resolved=false" >> "$GITHUB_OUTPUT"
           else
@@ -60,8 +60,20 @@ jobs:
               git add "$file"
             done <<< "$CONFLICT_FILES"
 
-            git commit -m "chore: auto-resolve workflow conflicts during upstream sync"
             echo "auto_resolved=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Upstream workflow updates cannot be pushed by default GITHUB_TOKEN.
+          # Keep this fork's workflow definitions before creating the merge commit.
+          git restore --source=origin/main --staged --worktree .github/workflows || true
+
+          # Stage all remaining merge results and create a single merge commit.
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: sync upstream/main"
+          else
+            # Nothing changed after keeping fork workflows.
+            git merge --abort || true
           fi
 
       - name: Stop when merge has conflicts
@@ -69,17 +81,6 @@ jobs:
         run: |
           echo "Upstream sync has merge conflicts. Resolve manually."
           exit 1
-
-      - name: Keep fork workflow definitions
-        run: |
-          # Upstream workflow updates cannot be pushed by default GITHUB_TOKEN
-          # and are not needed for this fork. Always keep local workflow files.
-          git checkout origin/main -- .github/workflows
-
-          if ! git diff --quiet -- .github/workflows; then
-            git add .github/workflows
-            git commit -m "chore: keep fork workflow definitions during upstream sync"
-          fi
 
       - name: Detect changes
         id: changes
@@ -93,15 +94,7 @@ jobs:
       - name: Push merged main
         if: steps.changes.outputs.changed == 'true'
         run: |
-          for i in 1 2 3; do
-            git pull --rebase origin main
-            if git push origin main; then
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "Failed to push after retries"
-          exit 1
+          git push origin HEAD:main
 
       - name: Trigger Intel release workflow
         if: steps.changes.outputs.changed == 'true'
