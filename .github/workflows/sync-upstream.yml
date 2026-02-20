@@ -93,7 +93,15 @@ jobs:
       - name: Push merged main
         if: steps.changes.outputs.changed == 'true'
         run: |
-          git push origin main
+          for i in 1 2 3; do
+            git pull --rebase origin main
+            if git push origin main; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Failed to push after retries"
+          exit 1
 
       - name: Trigger Intel release workflow
         if: steps.changes.outputs.changed == 'true'
