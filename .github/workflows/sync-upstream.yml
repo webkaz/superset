@@ -5,6 +5,10 @@ on:
     - cron: "0 3 * * 1"
   workflow_dispatch:
 
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
 permissions:
   contents: write
   actions: write
@@ -65,6 +69,17 @@ jobs:
         run: |
           echo "Upstream sync has merge conflicts. Resolve manually."
           exit 1
+
+      - name: Keep fork workflow definitions
+        run: |
+          # Upstream workflow updates cannot be pushed by default GITHUB_TOKEN
+          # and are not needed for this fork. Always keep local workflow files.
+          git checkout origin/main -- .github/workflows
+
+          if ! git diff --quiet -- .github/workflows; then
+            git add .github/workflows
+            git commit -m "chore: keep fork workflow definitions during upstream sync"
+          fi
 
       - name: Detect changes
         id: changes
