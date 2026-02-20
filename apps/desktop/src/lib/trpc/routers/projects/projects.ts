@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
 	BRANCH_PREFIX_MODES,
+	EXTERNAL_APPS,
 	projects,
 	type SelectProject,
 	settings,
@@ -311,6 +312,18 @@ export const createProjectsRouter = (getWindow: () => BrowserWindow | null) => {
 				}
 
 				return project;
+			}),
+
+		getDefaultApp: publicProcedure
+			.input(z.object({ projectId: z.string() }))
+			.query(({ input }) => {
+				const project = localDb
+					.select()
+					.from(projects)
+					.where(eq(projects.id, input.projectId))
+					.get();
+
+				return project?.defaultApp ?? "cursor";
 			}),
 
 		getRecents: publicProcedure.query((): Project[] => {
@@ -799,7 +812,9 @@ export const createProjectsRouter = (getWindow: () => BrowserWindow | null) => {
 							.optional(),
 						branchPrefixMode: z.enum(BRANCH_PREFIX_MODES).nullable().optional(),
 						branchPrefixCustom: z.string().nullable().optional(),
+						workspaceBaseBranch: z.string().nullable().optional(),
 						hideImage: z.boolean().optional(),
+						defaultApp: z.enum(EXTERNAL_APPS).nullable().optional(),
 					}),
 				}),
 			)
@@ -826,8 +841,14 @@ export const createProjectsRouter = (getWindow: () => BrowserWindow | null) => {
 						...(input.patch.branchPrefixCustom !== undefined && {
 							branchPrefixCustom: input.patch.branchPrefixCustom,
 						}),
+						...(input.patch.workspaceBaseBranch !== undefined && {
+							workspaceBaseBranch: input.patch.workspaceBaseBranch,
+						}),
 						...(input.patch.hideImage !== undefined && {
 							hideImage: input.patch.hideImage,
+						}),
+						...(input.patch.defaultApp !== undefined && {
+							defaultApp: input.patch.defaultApp,
 						}),
 						lastOpenedAt: Date.now(),
 					})
